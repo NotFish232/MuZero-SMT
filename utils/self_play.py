@@ -55,8 +55,6 @@ class SelfPlay:
                     ),
                     self.config.temperature_threshold,
                     False,
-                    "self",
-                    0,
                 )
 
                 replay_buffer.save_game.remote(game_history, shared_storage)
@@ -67,8 +65,6 @@ class SelfPlay:
                     0,
                     self.config.temperature_threshold,
                     False,
-                    "self",
-                    0,
                 )
 
                 # Save to the shared storage
@@ -102,7 +98,7 @@ class SelfPlay:
         self.close_game()
 
     def play_game(
-        self, temperature, temperature_threshold, render, opponent, muzero_player
+        self, temperature, temperature_threshold, render
     ):
         """
         Play one game with actions based on the Monte Carlo tree search at each moves.
@@ -235,15 +231,15 @@ class MCTS:
             tuple[MCTSNode, dict[str, Any]]: The root node of the MCTS algorithm along with some data
         """
 
-        # initialize root of MCTS search with no priors
+        # Initialize root of MCTS search with no priors
         root = MCTSNode(0)
 
-        # convert the observation from a numpy array to a tensor
+        # Convert the observation from a numpy array to a tensor
         observation = T.tensor(
             raw_observation, dtype=T.float32, device=next(model.parameters()).device
         )
 
-        # get inital inference from model
+        # Get inital inference from model
         (
             root_predicted_value,
             reward,
@@ -251,17 +247,13 @@ class MCTS:
             hidden_state,
         ) = model.initial_inference(observation)
 
+
+        # Convert model predicted root value and reward to an actual scalar
         root_predicted_value = support_to_scalar(
             root_predicted_value, self.config.support_size
         ).item()
-        
         reward = support_to_scalar(reward, self.config.support_size).item()
-        assert (
-            legal_actions
-        ), f"Legal actions should not be an empty array. Got {legal_actions}."
-        assert set(legal_actions).issubset(
-            set(self.config.action_space)
-        ), "Legal actions should be a subset of the action space."
+
         root.expand(
             legal_actions,
             to_play,

@@ -18,10 +18,6 @@ def dict_to_cpu(dictionary: dict[str, Any]) -> dict[str, Any]:
     return cpu_dict
 
 
-##################################
-######## Fully Connected #########
-
-
 class MuZeroNetwork(nn.Module):
     @staticmethod
     def from_config(config: MuZeroConfig) -> "MuZeroNetwork":
@@ -174,21 +170,31 @@ def support_to_scalar(
     """
     Transform a categorical representation to a scalar
     See paper appendix Network Architecture
-    """
-    # Decode to a scalar
-    probabilities = T.softmax(logits, dim=1)
-    support = (
-        T.tensor([x for x in range(-support_size, support_size + 1)])
-        .expand(probabilities.shape)
-        .float()
-        .to(device=probabilities.device)
-    )
-    x = T.sum(support * probabilities, dim=1, keepdim=True)
 
-    # Invert the scaling (defined in https://arxiv.org/abs/1805.11593)
-    x = T.sign(x) * (
-        ((T.sqrt(1 + 4 * eps * (T.abs(x) + 1 + eps)) - 1) / (2 * eps)) ** 2 - 1
+    Args:
+        logits (torch.Tensor - shape (x_1, ..., x_n, 2 * support_size + 1): The tensor with last dimension of supports
+        support_size (int): The number of supports
+        eps (float): A small epsilon used for inverting the scaling of x
+
+    Returns:
+        torch.Tensor - shape (x_1, ..., x_n): Tensor of scaler values recovered from supports
+    """
+
+    # Softmax the logits so it sums up to one
+    probs = T.softmax(logits, dim=-1)
+
+    # Generate supports and sum up the element wise multiplication of support values and probs
+    support = T.arange(
+        -support_size, support_size + 1, dtype=T.float32, device=probs.device
     )
+    x = T.sum(support * probs, dim=-1)
+
+    # Invert the scaling (defined in https://arxivTrue.org/abs/1805.11593)
+    x = (
+        T.sign(x) * ((T.sqrt(1 + 4 * eps * (T.abs(x) + 1 + eps)) - 1) / (2 * eps)) ** 2
+        - 1
+    )
+
     return x
 
 
@@ -198,14 +204,13 @@ def scalar_to_support(x: T.Tensor, support_size: int, eps: float = 1e-3) -> T.Te
     See paper appendix Network Architecture
 
     Args:
-        x (torch.Tensor - shape (W, H)): The tensor of scalars to conver to supports
+        x (torch.Tensor - shape (x_1, ..., x_n)): The tensor of scalars to conver to supports
         support_size (int): The number of supports
         eps (float): An epsilon for the scaling of x
 
     Returns:
-        torch.Tensor - shape (W, H, 2 * support_size + 1): A tensor encoded in supports
+        torch.Tensor - shape (x_1, ..., x_n, 2 * support_size + 1): A tensor encoded in supports
     """
-
 
     # Reduce the scale (defined in https://arxiv.org/abs/1805.11593)
     x = T.sign(x) * (T.sqrt(T.abs(x) + 1) - 1) + eps * x

@@ -1,14 +1,12 @@
-from utils.temp import scalar_to_support as mine
-from utils.models import scalar_to_support as theirs
+from utils.models import scalar_to_support, support_to_scalar
 
 
 import torch as T
 
 
-num_supports = 5
-x = T.linspace(-1000, 1000, 420).reshape(21, 20)
+num_supports = 10
+x = T.arange(-50, 50).reshape(100)
 
-mine_res = mine(x, num_supports)
-their_res = theirs(x, num_supports)
+res = scalar_to_support(x, num_supports)
 
-print(T.allclose(mine_res, their_res))
+print(support_to_scalar(res, num_supports))
