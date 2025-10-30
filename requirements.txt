@@ -1,0 +1,12 @@
+gymnasium
+nevergrad
+# numpy
+ray
+seaborn
+tensorboard
+torch
+z3-solver
+sentence-transformers
+
+black
+isort
