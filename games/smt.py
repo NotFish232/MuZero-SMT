@@ -102,11 +102,7 @@ class Game(AbstractGame):
             action_space=list(
                 range(len(TACTICS))
             ),  # Fixed list of all possible actions. You should only edit the length
-            players=list(range(1)),  # List of players. You should only edit the length
             stacked_observations=0,  # Number of previous observations and previous actions to add to the current observation
-            # Evaluate
-            muzero_player=0,  # Turn Muzero begins to play (0: MuZero plays first, 1: MuZero plays second)
-            opponent=None,  # Hard coded agent that MuZero faces to assess his progress in multiplayer games. It doesn't influence training. None, "random" or "expert" if implemented in the Game class
             ### Self-Play
             num_workers=5,  # Number of simultaneous threads/workers self-playing to feed the replay buffer
             selfplay_on_gpu=False,

@@ -67,8 +67,8 @@ class SelfPlay:
                     0,
                     self.config.temperature_threshold,
                     False,
-                    "self" if len(self.config.players) == 1 else self.config.opponent,
-                    self.config.muzero_player,
+                    "self",
+                    0,
                 )
 
                 # Save to the shared storage
@@ -81,23 +81,7 @@ class SelfPlay:
                         ),
                     }
                 )
-                if 1 < len(self.config.players):
-                    shared_storage.set_info.remote(
-                        {
-                            "muzero_reward": sum(
-                                reward
-                                for i, reward in enumerate(game_history.reward_history)
-                                if game_history.to_play_history[i - 1]
-                                == self.config.muzero_player
-                            ),
-                            "opponent_reward": sum(
-                                reward
-                                for i, reward in enumerate(game_history.reward_history)
-                                if game_history.to_play_history[i - 1]
-                                != self.config.muzero_player
-                            ),
-                        }
-                    )
+
 
             # Managing the self-play / training ratio
             if not test_mode and self.config.self_play_delay:
@@ -128,7 +112,7 @@ class SelfPlay:
         game_history.action_history.append(0)
         game_history.observation_history.append(observation)
         game_history.reward_history.append(0)
-        game_history.to_play_history.append(self.game.to_play())
+        game_history.to_play_history.append(0)
 
         done = False
 
@@ -150,33 +134,29 @@ class SelfPlay:
                 )
 
                 # Choose the action
-                if opponent == "self" or muzero_player == self.game.to_play():
-                    root, mcts_info = MCTS(self.config).run(
-                        self.model,
-                        stacked_observations,
-                        self.game.legal_actions(),
-                        self.game.to_play(),
-                        True,
-                    )
-                    action = self.select_action(
-                        root,
-                        (
-                            temperature
-                            if not temperature_threshold
-                            or len(game_history.action_history) < temperature_threshold
-                            else 0
-                        ),
-                    )
+                root, mcts_info = MCTS(self.config).run(
+                    self.model,
+                    stacked_observations,
+                    self.game.legal_actions(),
+                    0,
+                    True,
+                )
+                action = self.select_action(
+                    root,
+                    (
+                        temperature
+                        if not temperature_threshold
+                        or len(game_history.action_history) < temperature_threshold
+                        else 0
+                    ),
+                )
 
-                    if render:
-                        print(f'Tree depth: {mcts_info["max_tree_depth"]}')
-                        print(
-                            f"Root value for player {self.game.to_play()}: {root.value():.2f}"
-                        )
-                else:
-                    action, root = self.select_opponent_action(
-                        opponent, stacked_observations
+                if render:
+                    print(f'Tree depth: {mcts_info["max_tree_depth"]}')
+                    print(
+                        f"Root value for player {self.game.to_play()}: {root.value():.2f}"
                     )
+         
 
                 observation, reward, done = self.game.step(action)
 
@@ -190,46 +170,13 @@ class SelfPlay:
                 game_history.action_history.append(action)
                 game_history.observation_history.append(observation)
                 game_history.reward_history.append(reward)
-                game_history.to_play_history.append(self.game.to_play())
+                game_history.to_play_history.append(0)
 
         return game_history
 
     def close_game(self):
         self.game.close()
 
-    def select_opponent_action(self, opponent, stacked_observations):
-        """
-        Select opponent action for evaluating MuZero level.
-        """
-        if opponent == "human":
-            root, mcts_info = MCTS(self.config).run(
-                self.model,
-                stacked_observations,
-                self.game.legal_actions(),
-                self.game.to_play(),
-                True,
-            )
-            print(f'Tree depth: {mcts_info["max_tree_depth"]}')
-            print(f"Root value for player {self.game.to_play()}: {root.value():.2f}")
-            print(
-                f"Player {self.game.to_play()} turn. MuZero suggests {self.game.action_to_string(self.select_action(root, 0))}"
-            )
-            return self.game.human_to_action(), root
-        elif opponent == "expert":
-            return self.game.expert_agent(), None
-        elif opponent == "random":
-            assert (
-                self.game.legal_actions()
-            ), f"Legal actions should not be an empty array. Got {self.game.legal_actions()}."
-            assert set(self.game.legal_actions()).issubset(
-                set(self.config.action_space)
-            ), "Legal actions should be a subset of the action space."
-
-            return numpy.random.choice(self.game.legal_actions()), None
-        else:
-            raise NotImplementedError(
-                'Wrong argument: "opponent" argument should be "self", "human", "expert" or "random"'
-            )
 
     @staticmethod
     def select_action(node, temperature):
@@ -282,19 +229,21 @@ class MCTS:
 
         Args:
             raw_observation (np.ndarray): The observation from the game
-            legal_actions
+            legal_actions (list[int]): The actions an agent can take in the environment
 
         Returns:
-            _type_: _description_
+            tuple[MCTSNode, dict[str, Any]]: The root node of the MCTS algorithm along with some data
         """
 
         # initialize root of MCTS search with no priors
         root = MCTSNode(0)
 
+        # convert the observation from a numpy array to a tensor
         observation = T.tensor(
             raw_observation, dtype=T.float32, device=next(model.parameters()).device
         )
 
+        # get inital inference from model
         (
             root_predicted_value,
             reward,
@@ -305,6 +254,7 @@ class MCTS:
         root_predicted_value = support_to_scalar(
             root_predicted_value, self.config.support_size
         ).item()
+        
         reward = support_to_scalar(reward, self.config.support_size).item()
         assert (
             legal_actions
@@ -340,11 +290,7 @@ class MCTS:
                 action, node = self.select_child(node, min_max_stats)
                 search_path.append(node)
 
-                # Players play turn by turn
-                if virtual_to_play + 1 < len(self.config.players):
-                    virtual_to_play = self.config.players[virtual_to_play + 1]
-                else:
-                    virtual_to_play = self.config.players[0]
+                virtual_to_play = 0
 
             # Inside the search tree we use the dynamics function to obtain the next hidden
             # state given an action and the previous hidden state
@@ -409,7 +355,7 @@ class MCTS:
             value_score = min_max_stats.normalize(
                 child.reward
                 + self.config.discount
-                * (child.value() if len(self.config.players) == 1 else -child.value())
+                * child.value()
             )
         else:
             value_score = 0
@@ -421,26 +367,14 @@ class MCTS:
         At the end of a simulation, we propagate the evaluation all the way up the tree
         to the root.
         """
-        if len(self.config.players) == 1:
-            for node in reversed(search_path):
-                node.value_sum += value
-                node.visit_count += 1
-                min_max_stats.update(node.reward + self.config.discount * node.value())
+        for node in reversed(search_path):
+            node.value_sum += value
+            node.visit_count += 1
+            min_max_stats.update(node.reward + self.config.discount * node.value())
 
-                value = node.reward + self.config.discount * value
+            value = node.reward + self.config.discount * value
 
-        elif len(self.config.players) == 2:
-            for node in reversed(search_path):
-                node.value_sum += value if node.to_play == to_play else -value
-                node.visit_count += 1
-                min_max_stats.update(node.reward + self.config.discount * -node.value())
 
-                value = (
-                    -node.reward if node.to_play == to_play else node.reward
-                ) + self.config.discount * value
-
-        else:
-            raise NotImplementedError("More than two player mode not implemented.")
 
 
 class MCTSNode:

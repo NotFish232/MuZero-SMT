@@ -412,19 +412,8 @@ class MuZero:
             )
         self_play_worker.close_game.remote()
 
-        if len(self.config.players) == 1:
-            result = numpy.mean([sum(history.reward_history) for history in results])
-        else:
-            result = numpy.mean(
-                [
-                    sum(
-                        reward
-                        for i, reward in enumerate(history.reward_history)
-                        if history.to_play_history[i - 1] == muzero_player
-                    )
-                    for history in results
-                ]
-            )
+        result = numpy.mean([sum(history.reward_history) for history in results])
+        
         return result
 
     def load_model(self, checkpoint_path=None, replay_buffer_path=None):

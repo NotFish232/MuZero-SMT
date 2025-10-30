@@ -1,6 +1,7 @@
-import torch
+import torch as T
 from torch import nn
 from typing_extensions import Any, Self
+import torch
 
 from games.abstract_game import MuZeroConfig
 
@@ -8,7 +9,7 @@ from games.abstract_game import MuZeroConfig
 def dict_to_cpu(dictionary: dict[str, Any]) -> dict[str, Any]:
     cpu_dict: dict[str, Any] = {}
     for key, value in dictionary.items():
-        if isinstance(value, torch.Tensor):
+        if isinstance(value, T.Tensor):
             cpu_dict[key] = value.cpu()
         elif isinstance(value, dict):
             cpu_dict[key] = dict_to_cpu(value)
@@ -54,7 +55,7 @@ class MuZeroNetwork(nn.Module):
         self.action_space_size = action_space_size
         self.full_support_size = 2 * support_size + 1
 
-        self.representation_network = torch.nn.DataParallel(
+        self.representation_network = nn.DataParallel(
             mlp(
                 observation_shape[0]
                 * observation_shape[1]
@@ -66,21 +67,21 @@ class MuZeroNetwork(nn.Module):
             )
         )
 
-        self.dynamics_encoded_state_network = torch.nn.DataParallel(
+        self.dynamics_encoded_state_network = nn.DataParallel(
             mlp(
                 encoding_size + self.action_space_size,
                 fc_dynamics_layers,
                 encoding_size,
             )
         )
-        self.dynamics_reward_network = torch.nn.DataParallel(
+        self.dynamics_reward_network = nn.DataParallel(
             mlp(encoding_size, fc_reward_layers, self.full_support_size)
         )
 
-        self.prediction_policy_network = torch.nn.DataParallel(
+        self.prediction_policy_network = nn.DataParallel(
             mlp(encoding_size, fc_policy_layers, self.action_space_size)
         )
-        self.prediction_value_network = torch.nn.DataParallel(
+        self.prediction_value_network = nn.DataParallel(
             mlp(encoding_size, fc_value_layers, self.full_support_size)
         )
 
@@ -106,12 +107,10 @@ class MuZeroNetwork(nn.Module):
     def dynamics(self, encoded_state, action):
         # Stack encoded_state with a game specific one hot encoded action (See paper appendix Network Architecture)
         action_one_hot = (
-            torch.zeros((action.shape[0], self.action_space_size))
-            .to(action.device)
-            .float()
+            T.zeros((action.shape[0], self.action_space_size)).to(action.device).float()
         )
         action_one_hot.scatter_(1, action.long(), 1.0)
-        x = torch.cat((encoded_state, action_one_hot), dim=1)
+        x = T.cat((encoded_state, action_one_hot), dim=1)
 
         next_encoded_state = self.dynamics_encoded_state_network(x)
 
@@ -132,10 +131,10 @@ class MuZeroNetwork(nn.Module):
         encoded_state = self.representation(observation)
         policy_logits, value = self.prediction(encoded_state)
         # reward equal to 0 for consistency
-        reward = torch.log(
+        reward = T.log(
             (
-                torch.zeros(1, self.full_support_size)
-                .scatter(1, torch.tensor([[self.full_support_size // 2]]).long(), 1.0)
+                T.zeros(1, self.full_support_size)
+                .scatter(1, T.tensor([[self.full_support_size // 2]]).long(), 1.0)
                 .repeat(len(observation), 1)
                 .to(observation.device)
             )
@@ -158,59 +157,81 @@ def mlp(
     input_size,
     layer_sizes,
     output_size,
-    output_activation=torch.nn.Identity,
-    activation=torch.nn.ELU,
+    output_activation=nn.Identity,
+    activation=nn.ELU,
 ):
     sizes = [input_size] + layer_sizes + [output_size]
     layers = []
     for i in range(len(sizes) - 1):
         act = activation if i < len(sizes) - 2 else output_activation
-        layers += [torch.nn.Linear(sizes[i], sizes[i + 1]), act()]
-    return torch.nn.Sequential(*layers)
+        layers += [nn.Linear(sizes[i], sizes[i + 1]), act()]
+    return nn.Sequential(*layers)
 
 
-def support_to_scalar(logits, support_size):
+def support_to_scalar(
+    logits: T.Tensor, support_size: int, eps: float = 1e-3
+) -> T.Tensor:
     """
     Transform a categorical representation to a scalar
     See paper appendix Network Architecture
     """
     # Decode to a scalar
-    probabilities = torch.softmax(logits, dim=1)
+    probabilities = T.softmax(logits, dim=1)
     support = (
-        torch.tensor([x for x in range(-support_size, support_size + 1)])
+        T.tensor([x for x in range(-support_size, support_size + 1)])
         .expand(probabilities.shape)
         .float()
         .to(device=probabilities.device)
     )
-    x = torch.sum(support * probabilities, dim=1, keepdim=True)
+    x = T.sum(support * probabilities, dim=1, keepdim=True)
 
     # Invert the scaling (defined in https://arxiv.org/abs/1805.11593)
-    x = torch.sign(x) * (
-        ((torch.sqrt(1 + 4 * 0.001 * (torch.abs(x) + 1 + 0.001)) - 1) / (2 * 0.001))
-        ** 2
-        - 1
+    x = T.sign(x) * (
+        ((T.sqrt(1 + 4 * eps * (T.abs(x) + 1 + eps)) - 1) / (2 * eps)) ** 2 - 1
     )
     return x
 
 
-def scalar_to_support(x, support_size):
+def scalar_to_support(x: T.Tensor, support_size: int, eps: float = 1e-3) -> T.Tensor:
     """
     Transform a scalar to a categorical representation with (2 * support_size + 1) categories
     See paper appendix Network Architecture
-    """
-    # Reduce the scale (defined in https://arxiv.org/abs/1805.11593)
-    x = torch.sign(x) * (torch.sqrt(torch.abs(x) + 1) - 1) + 0.001 * x
 
-    # Encode on a vector
-    x = torch.clamp(x, -support_size, support_size)
-    floor = x.floor()
-    prob = x - floor
-    logits = torch.zeros(x.shape[0], x.shape[1], 2 * support_size + 1).to(x.device)
-    logits.scatter_(
-        2, (floor + support_size).long().unsqueeze(-1), (1 - prob).unsqueeze(-1)
-    )
-    indexes = floor + support_size + 1
-    prob = prob.masked_fill_(2 * support_size < indexes, 0.0)
-    indexes = indexes.masked_fill_(2 * support_size < indexes, 0.0)
-    logits.scatter_(2, indexes.long().unsqueeze(-1), prob.unsqueeze(-1))
+    Args:
+        x (torch.Tensor - shape (W, H)): The tensor of scalars to conver to supports
+        support_size (int): The number of supports
+        eps (float): An epsilon for the scaling of x
+
+    Returns:
+        torch.Tensor - shape (W, H, 2 * support_size + 1): A tensor encoded in supports
+    """
+
+
+    # Reduce the scale (defined in https://arxiv.org/abs/1805.11593)
+    x = T.sign(x) * (T.sqrt(T.abs(x) + 1) - 1) + eps * x
+
+    # Clamp x to the range [-support_size, support_size] and convert it to an integer
+    x = T.clamp(x, -support_size, support_size)
+
+    # Get value below corresponding to left-side support
+    x_floor = x.floor()
+
+    # Logits of size (W, H, 2 * support_size + 1) that contains the actual supports
+    logits = T.zeros((*x.shape, 2 * support_size + 1), device=x.device)
+
+    # Get values and idxs for first supports and second supports
+    # Value of first support is how close it is to floor, and value of second is how close it is to the ceiling
+    # Index is the floor offset by the support size to deal with negative values
+    support_1_vals = (x_floor - x + 1).unsqueeze_(-1)
+    support_1_idxs = (x_floor + support_size).to(T.int32).unsqueeze_(-1)
+
+    support_2_vals = 1 - support_1_vals
+    support_2_idxs = support_1_idxs + 1
+    # If support 2 index overflows past 2 * support_size, wrap it around to index 0
+    support_2_idxs.masked_fill_(2 * support_size < support_2_idxs, 0)
+
+    # Scatter the support values into the corresponding idxs
+    logits.scatter_(-1, support_1_idxs, support_1_vals)
+    logits.scatter_(-1, support_2_idxs, support_2_vals)
+
     return logits

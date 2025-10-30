@@ -22,14 +22,7 @@ class MuZeroConfig:
     action_space: list[
         int
     ]  # Fixed list of all possible actions. You should only edit the length
-    players: list[int]  # List of players. You should only edit the length
     stacked_observations: int  # Number of previous observations and previous actions to add to the current observation
-
-    # Evaluate
-    muzero_player: int  # Turn Muzero begins to play (0: MuZero plays first, 1: MuZero plays second)
-    opponent: (
-        str | None
-    )  # Hard coded agent that MuZero faces to assess his progress in multiplayer games. It doesn't influence training. None, "random" or "expert" if implemented in the Game class
 
     ### Self-Play
     num_workers: int  # Number of simultaneous threads/workers self-playing to feed the replay buffer
@@ -147,14 +140,6 @@ class AbstractGame(ABC):
         """
         pass
 
-    def to_play(self: Self) -> int:
-        """
-        Return the current player.
-
-        Returns:
-            The current player, it should be an element of the players list in the config.
-        """
-        return 0
 
     @abstractmethod
     def legal_actions(self: Self) -> list[int]:

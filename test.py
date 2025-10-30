@@ -1,25 +1,14 @@
-from pathlib import Path
-
-from train import MuZero
-
-CHECKPOINT_DIR = "results/smt/2025-10-28--13-13-50"
-
-GAME_NAME = "smt"
+from utils.temp import scalar_to_support as mine
+from utils.models import scalar_to_support as theirs
 
 
-def main() -> None:
-    muzero = MuZero(GAME_NAME)
-
-    if CHECKPOINT_DIR is not None:
-        checkpoint_path = Path(CHECKPOINT_DIR) / "model.checkpoint"
-        replay_buffer_path = Path(CHECKPOINT_DIR) / "replay_buffer.pkl"
-
-        muzero.load_model(checkpoint_path, replay_buffer_path)
-
-    res = muzero.test()
-
-    print(res)
+import torch as T
 
 
-if __name__ == "__main__":
-    main()
+num_supports = 5
+x = T.linspace(-1000, 1000, 420).reshape(21, 20)
+
+mine_res = mine(x, num_supports)
+their_res = theirs(x, num_supports)
+
+print(T.allclose(mine_res, their_res))
