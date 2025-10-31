@@ -1,4 +1,4 @@
-from utils.models import scalar_to_support, support_to_scalar
+from muzero_smt.models import scalar_to_support, support_to_scalar
 
 
 import torch as T

@@ -30,7 +30,7 @@ class Game(AbstractGame):
     Game wrapper.
     """
 
-    def __init__(self, seed=None):
+    def __init__(self: Self, seed=None):
         self.env = gym.make("CartPole-v1")
         if seed is not None:
             self.env.reset(seed=seed)
@@ -60,9 +60,7 @@ class Game(AbstractGame):
             max_moves=500,  # Maximum number of moves if game is not finished before
             num_simulations=50,  # Number of future moves self-simulated
             discount=0.997,  # Chronological discount of the reward
-            temperature_threshold=None  # Number of moves before dropping the temperature given by visit_softmax_temperature_fn to 0 (ie selecting the best action). If None, visit_softmax_temperature_fn is used every time
             # Root prior exploration noise
-            ,
             root_dirichlet_alpha=0.25,
             root_exploration_fraction=0.25
             # UCB formula

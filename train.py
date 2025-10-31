@@ -11,12 +11,12 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from typing_extensions import Any, Self
 
-import utils.replay_buffer as replay_buffer
-import utils.self_play as self_play
-import utils.shared_storage as shared_storage
-import utils.trainer as trainer
-from utils.models import MuZeroNetwork, dict_to_cpu
-from utils.self_play import GameHistory
+import muzero_smt.replay_buffer as replay_buffer
+import muzero_smt.self_play as self_play
+import muzero_smt.shared_storage as shared_storage
+import muzero_smt.trainer as trainer
+from muzero_smt.models import MuZeroNetwork, dict_to_cpu
+from muzero_smt.self_play import GameHistory
 
 
 class MuZero:

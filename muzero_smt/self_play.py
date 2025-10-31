@@ -8,7 +8,7 @@ import torch as T
 from typing_extensions import Any, Self, Type
 
 from games.abstract_game import AbstractGame, MuZeroConfig
-from utils.models import MuZeroNetwork, support_to_scalar
+from muzero_smt.models import MuZeroNetwork, support_to_scalar
 
 
 @ray.remote
@@ -53,7 +53,6 @@ class SelfPlay:
                         self.config,
                         ray.get(shared_storage.get_info.remote("training_step")),
                     ),
-                    self.config.temperature_threshold,
                     False,
                 )
 
@@ -63,7 +62,6 @@ class SelfPlay:
                 # Take the best action (no exploration) in test mode
                 game_history = self.play_game(
                     0,
-                    self.config.temperature_threshold,
                     False,
                 )
 
@@ -96,55 +94,48 @@ class SelfPlay:
 
         self.close_game()
 
-    def play_game(self, temperature, temperature_threshold, render):
+    def play_game(
+        self: Self, temperature, render_game: bool
+    ) -> "GameHistory":
         """
         Play one game with actions based on the Monte Carlo tree search at each moves.
         """
-        game_history = GameHistory()
+
+        # Initial observation
         observation = self.game.reset()
+
+        # Initial game history with a dummy entry for the root node
+        game_history = GameHistory()
+
         game_history.action_history.append(0)
         game_history.observation_history.append(observation)
         game_history.reward_history.append(0)
 
         done = False
 
-        if render:
+        if render_game:
             self.game.render()
 
         with T.no_grad():
             while (
                 not done and len(game_history.action_history) <= self.config.max_moves
             ):
-                assert (
-                    len(numpy.array(observation).shape) == 3
-                ), f"Observation should be 3 dimensionnal instead of {len(numpy.array(observation).shape)} dimensionnal. Got observation of shape: {numpy.array(observation).shape}"
-                assert (
-                    numpy.array(observation).shape == self.config.observation_shape
-                ), f"Observation should match the observation_shape defined in MuZeroConfig. Expected {self.config.observation_shape} but got {numpy.array(observation).shape}."
                 stacked_observations = game_history.get_stacked_observations(
                     -1, self.config.stacked_observations, len(self.config.action_space)
                 )
 
                 # Choose the action
-                root, mcts_info = MCTS(self.config).run(
+                root = MCTS(self.config).run(
                     self.model,
                     stacked_observations,
                     self.game.legal_actions(),
                     True,
                 )
-                action = self.select_action(
-                    root,
-                    (
-                        temperature
-                        if not temperature_threshold
-                        or len(game_history.action_history) < temperature_threshold
-                        else 0
-                    ),
-                )
+                action = self.select_action(root, temperature)
 
                 observation, reward, done = self.game.step(action)
 
-                if render:
+                if render_game:
                     print(f"Played action: {self.game.action_to_string(action)}")
                     self.game.render()
 
@@ -186,7 +177,6 @@ class SelfPlay:
         return action
 
 
-# Game independent
 class MCTS:
     """
     Core Monte Carlo Tree Search algorithm.
@@ -204,7 +194,7 @@ class MCTS:
         raw_observation: np.ndarray,
         legal_actions: list[int],
         add_exploration_noise: bool,
-    ) -> tuple["MCTSNode", dict[str, Any]]:
+    ) -> "MCTSNode":
         """
         Runs the MCTS algorithm starting from a root node and expanding outward to find good moves
 
@@ -257,26 +247,27 @@ class MCTS:
 
         min_max_stats = MinMaxStats()
 
-        max_tree_depth = 0
         for _ in range(self.config.num_simulations):
             node = root
             search_path = [node]
-            current_tree_depth = 0
 
             while node.is_expanded():
-                current_tree_depth += 1
                 node, action = self.select_child(node, min_max_stats)
                 search_path.append(node)
 
-            # Inside the search tree we use the dynamics function to obtain the next hidden
-            # state given an action and the previous hidden state
+            # Get the parent of the last node which is not expanded
+            # Calculate the new hidden state, and the policy / reward of that node based on the parent's hiden state
             parent = search_path[-2]
             value, reward, policy_logits, hidden_state = model.recurrent_inference(
                 parent.hidden_state,
                 T.tensor([[action]]).to(device),
             )
+
+            # Convert model predicted value and reward to scalars
             value = support_to_scalar(value, self.config.support_size).item()
             reward = support_to_scalar(reward, self.config.support_size).item()
+
+            # Expand the first unexpanded node
             node.expand(
                 hidden_state,
                 reward,
@@ -284,15 +275,10 @@ class MCTS:
                 policy_logits,
             )
 
+            # Propagate up teh search path with the value received
             self.backpropagate(search_path, value, min_max_stats)
 
-            max_tree_depth = max(max_tree_depth, current_tree_depth)
-
-        extra_info = {
-            "max_tree_depth": max_tree_depth,
-            "root_predicted_value": root_predicted_value,
-        }
-        return root, extra_info
+        return root
 
     def select_child(
         self: Self, node: "MCTSNode", min_max_stats: "MinMaxStats"
@@ -308,7 +294,6 @@ class MCTS:
             tuple[MCTSNode, int]: tuple of the child and associated action
         """
 
-
         selected_action = -1
         max_puct_score = -1.0
 
@@ -320,7 +305,6 @@ class MCTS:
             if puct_score > max_puct_score:
                 selected_action = action
                 max_puct_score = puct_score
-
 
         return node.children[selected_action], selected_action
 

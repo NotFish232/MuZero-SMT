@@ -109,7 +109,6 @@ class Game(AbstractGame):
             max_moves=10,  # Maximum number of moves if game is not finished before
             num_simulations=10,  # Number of future moves self-simulated
             discount=0.978,  # Chronological discount of the reward
-            temperature_threshold=None,  # Number of moves before dropping the temperature given by visit_softmax_temperature_fn to 0 (ie selecting the best action). If None, visit_softmax_temperature_fn is used every time
             # Root prior exploration noise
             root_dirichlet_alpha=0.25,
             root_exploration_fraction=0.25,

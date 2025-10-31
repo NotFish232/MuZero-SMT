@@ -5,8 +5,8 @@ import numpy
 import ray
 import torch
 
-import utils.models as models
-from utils.models import MuZeroNetwork
+import muzero_smt.models as models
+from muzero_smt.models import MuZeroNetwork
 
 
 @ray.remote

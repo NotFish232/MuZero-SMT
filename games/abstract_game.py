@@ -30,10 +30,6 @@ class MuZeroConfig:
     max_moves: int  # Maximum number of moves if game is not finished before
     num_simulations: int  # Number of future moves self-simulated
     discount: float  # Chronological discount of the reward
-    temperature_threshold: (
-        int | None
-    )  # Number of moves before dropping the temperature given by visit_softmax_temperature_fn to 0 (ie selecting the best action). If None, visit_softmax_temperature_fn is used every time
-
     # Root prior exploration noise
     root_dirichlet_alpha: float
     root_exploration_fraction: float
