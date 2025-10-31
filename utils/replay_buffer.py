@@ -238,12 +238,7 @@ class ReplayBuffer:
                 if game_history.reanalysed_predicted_root_values is None
                 else game_history.reanalysed_predicted_root_values
             )
-            last_step_value = (
-                root_values[bootstrap_index]
-                if game_history.to_play_history[bootstrap_index]
-                == game_history.to_play_history[index]
-                else -root_values[bootstrap_index]
-            )
+            last_step_value = root_values[bootstrap_index]
 
             value = last_step_value * self.config.discount**self.config.td_steps
         else:
@@ -253,12 +248,7 @@ class ReplayBuffer:
             game_history.reward_history[index + 1 : bootstrap_index + 1]
         ):
             # The value is oriented from the perspective of the current player
-            value += (
-                reward
-                if game_history.to_play_history[index]
-                == game_history.to_play_history[index + i]
-                else -reward
-            ) * self.config.discount**i
+            value += reward * self.config.discount**i
 
         return value
 

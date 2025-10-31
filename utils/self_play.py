@@ -78,7 +78,6 @@ class SelfPlay:
                     }
                 )
 
-
             # Managing the self-play / training ratio
             if not test_mode and self.config.self_play_delay:
                 time.sleep(self.config.self_play_delay)
@@ -97,9 +96,7 @@ class SelfPlay:
 
         self.close_game()
 
-    def play_game(
-        self, temperature, temperature_threshold, render
-    ):
+    def play_game(self, temperature, temperature_threshold, render):
         """
         Play one game with actions based on the Monte Carlo tree search at each moves.
         """
@@ -108,7 +105,6 @@ class SelfPlay:
         game_history.action_history.append(0)
         game_history.observation_history.append(observation)
         game_history.reward_history.append(0)
-        game_history.to_play_history.append(0)
 
         done = False
 
@@ -134,7 +130,6 @@ class SelfPlay:
                     self.model,
                     stacked_observations,
                     self.game.legal_actions(),
-                    0,
                     True,
                 )
                 action = self.select_action(
@@ -146,13 +141,6 @@ class SelfPlay:
                         else 0
                     ),
                 )
-
-                if render:
-                    print(f'Tree depth: {mcts_info["max_tree_depth"]}')
-                    print(
-                        f"Root value for player {self.game.to_play()}: {root.value():.2f}"
-                    )
-         
 
                 observation, reward, done = self.game.step(action)
 
@@ -166,13 +154,11 @@ class SelfPlay:
                 game_history.action_history.append(action)
                 game_history.observation_history.append(observation)
                 game_history.reward_history.append(reward)
-                game_history.to_play_history.append(0)
 
         return game_history
 
     def close_game(self):
         self.game.close()
-
 
     @staticmethod
     def select_action(node, temperature):
@@ -217,7 +203,6 @@ class MCTS:
         model: MuZeroNetwork,
         raw_observation: np.ndarray,
         legal_actions: list[int],
-        to_play: int,
         add_exploration_noise: bool,
     ) -> tuple["MCTSNode", dict[str, Any]]:
         """
@@ -230,6 +215,8 @@ class MCTS:
         Returns:
             tuple[MCTSNode, dict[str, Any]]: The root node of the MCTS algorithm along with some data
         """
+
+        device = next(iter(model.parameters())).device
 
         # Initialize root of MCTS search with no priors
         root = MCTSNode(0)
@@ -247,21 +234,21 @@ class MCTS:
             hidden_state,
         ) = model.initial_inference(observation)
 
-
         # Convert model predicted root value and reward to an actual scalar
         root_predicted_value = support_to_scalar(
             root_predicted_value, self.config.support_size
         ).item()
         reward = support_to_scalar(reward, self.config.support_size).item()
 
+        # Expand Root
         root.expand(
-            legal_actions,
-            to_play,
-            reward,
-            policy_logits,
             hidden_state,
+            reward,
+            legal_actions,
+            policy_logits,
         )
 
+        # Add dirichlet exploration noise to root to make children selection non-deterministic
         if add_exploration_noise:
             root.add_exploration_noise(
                 dirichlet_alpha=self.config.root_dirichlet_alpha,
@@ -272,36 +259,32 @@ class MCTS:
 
         max_tree_depth = 0
         for _ in range(self.config.num_simulations):
-            virtual_to_play = to_play
             node = root
             search_path = [node]
             current_tree_depth = 0
 
-            while node.expanded():
+            while node.is_expanded():
                 current_tree_depth += 1
-                action, node = self.select_child(node, min_max_stats)
+                node, action = self.select_child(node, min_max_stats)
                 search_path.append(node)
-
-                virtual_to_play = 0
 
             # Inside the search tree we use the dynamics function to obtain the next hidden
             # state given an action and the previous hidden state
             parent = search_path[-2]
             value, reward, policy_logits, hidden_state = model.recurrent_inference(
                 parent.hidden_state,
-                T.tensor([[action]]).to(parent.hidden_state.device),
+                T.tensor([[action]]).to(device),
             )
             value = support_to_scalar(value, self.config.support_size).item()
             reward = support_to_scalar(reward, self.config.support_size).item()
             node.expand(
-                self.config.action_space,
-                virtual_to_play,
-                reward,
-                policy_logits,
                 hidden_state,
+                reward,
+                self.config.action_space,
+                policy_logits,
             )
 
-            self.backpropagate(search_path, value, virtual_to_play, min_max_stats)
+            self.backpropagate(search_path, value, min_max_stats)
 
             max_tree_depth = max(max_tree_depth, current_tree_depth)
 
@@ -311,27 +294,48 @@ class MCTS:
         }
         return root, extra_info
 
-    def select_child(self, node, min_max_stats):
+    def select_child(
+        self: Self, node: "MCTSNode", min_max_stats: "MinMaxStats"
+    ) -> tuple["MCTSNode", int]:
         """
         Select the child with the highest UCB score.
-        """
-        max_ucb = max(
-            self.ucb_score(node, child, min_max_stats)
-            for action, child in node.children.items()
-        )
-        action = numpy.random.choice(
-            [
-                action
-                for action, child in node.children.items()
-                if self.ucb_score(node, child, min_max_stats) == max_ucb
-            ]
-        )
-        return action, node.children[action]
 
-    def ucb_score(self, parent, child, min_max_stats):
+        Args:
+            node (MCTSNode): The current node that we are exploring its children
+            min_max_stats (MinMaxStats): Stats of the tree for normalizing
+
+        Returns:
+            tuple[MCTSNode, int]: tuple of the child and associated action
         """
-        The score for a node is based on its value, plus an exploration bonus based on the prior.
+
+
+        selected_action = -1
+        max_puct_score = -1.0
+
+        # Find the child with the maximum PUCT score
+        # Don't worry about multiple having same score since that never happens
+        for action, child in node.children.items():
+            puct_score = self.puct_score(node, child, min_max_stats)
+
+            if puct_score > max_puct_score:
+                selected_action = action
+                max_puct_score = puct_score
+
+
+        return node.children[selected_action], selected_action
+
+    def puct_score(
+        self: Self, parent: "MCTSNode", child: "MCTSNode", min_max_stats: "MinMaxStats"
+    ) -> float:
         """
+        Calculates the Polynomial Upper Confidence Tree score for the passed child
+
+        Args:
+            parent (MCTSNode): The parent of the node
+            child (MCTSNode): The node whose PUCT score is being calculated
+            min_max_stats (MinMaxStats): Stats of the tree for normalizing
+        """
+
         pb_c = (
             math.log(
                 (parent.visit_count + self.config.pb_c_base + 1) / self.config.pb_c_base
@@ -340,79 +344,126 @@ class MCTS:
         )
         pb_c *= math.sqrt(parent.visit_count) / (child.visit_count + 1)
 
-        prior_score = pb_c * child.prior
+        prior_score = pb_c * child.prior_prob
 
         if child.visit_count > 0:
-            # Mean value Q
-            value_score = min_max_stats.normalize(
-                child.reward
-                + self.config.discount
-                * child.value()
-            )
+            # Mean value of Q
+            value_score = min_max_stats.normalize(child.value())
         else:
             value_score = 0
 
         return prior_score + value_score
 
-    def backpropagate(self, search_path, value, to_play, min_max_stats):
+    def backpropagate(
+        self: Self,
+        search_path: list["MCTSNode"],
+        value: float,
+        min_max_stats: "MinMaxStats",
+    ) -> None:
         """
         At the end of a simulation, we propagate the evaluation all the way up the tree
         to the root.
-        """
-        for node in reversed(search_path):
-            node.value_sum += value
-            node.visit_count += 1
-            min_max_stats.update(node.reward + self.config.discount * node.value())
 
+        Args:
+            search_path (list[MCTSNode]): the path of nodes visited during each rollout
+            value (float): The end value when the game was terminated
+            min_max_stats (MinMaxStats): The stats of the tree for normalizing
+        """
+
+        for node in reversed(search_path):
+            # Bootstrap the rewards backwards using the predicted rewards and end value
             value = node.reward + self.config.discount * value
 
+            # Update node values
+            node.value_sum += value
+            node.visit_count += 1
 
+            min_max_stats.update(node.value())
 
 
 class MCTSNode:
-    def __init__(self: Self, prior: int) -> None:
-        self.visit_count = 0
-        self.to_play = -1
-        self.prior = prior
-        self.value_sum = 0
-        self.children = {}
-        self.hidden_state = None
-        self.reward = 0
+    def __init__(self: Self, prior_prob: float) -> None:
+        """
+        Args:
+            prior_prob (float): The initial probability of selecting this node
+        """
 
-    def expanded(self: Self) -> bool:
+        self.prior_prob = prior_prob
+
+        # Node stats
+        self.visit_count = 0
+        self.value_sum = 0.0
+
+        # Information about the current state
+        self.hidden_state: T.Tensor | None = None
+        self.reward = 0.0
+
+        self.children: dict[int, MCTSNode] = {}
+
+    def is_expanded(self: Self) -> bool:
+        """
+        Whether this node has been expanded yet
+        """
+
         return len(self.children) > 0
 
-    def value(self):
+    def value(self: Self) -> float:
+        """
+        The value of this node, which is the mean value from simulations
+        """
+
         if self.visit_count == 0:
             return 0
+
         return self.value_sum / self.visit_count
 
-    def expand(self, actions, to_play, reward, policy_logits, hidden_state):
+    def expand(
+        self: Self,
+        hidden_state: T.Tensor,
+        reward: float,
+        action_space: list[int],
+        policy_logits: T.Tensor,
+    ) -> None:
         """
         We expand a node using the value, reward and policy prediction obtained from the
         neural network.
+
+        Args:
+            hidden_state (torch.Tensor): The tensor encoding of the current state from the representation network
+            reward (float): The reward received at this state
+            action_space (list[int]): The available actions at the current state (might not all be legal)
+            policy_logits (torch.Tensor): Logits of the policy for the current state
         """
-        self.to_play = to_play
-        self.reward = reward
+
         self.hidden_state = hidden_state
+        self.reward = reward
 
-        policy_values = T.softmax(
-            T.tensor([policy_logits[0][a] for a in actions]), dim=0
-        ).tolist()
-        policy = {a: policy_values[i] for i, a in enumerate(actions)}
-        for action, p in policy.items():
-            self.children[action] = MCTSNode(p)
+        # Convert logits to values through softmax and mask out actions not in action space
+        policy_values = T.softmax(policy_logits[0, action_space], dim=0).tolist()
 
-    def add_exploration_noise(self, dirichlet_alpha, exploration_fraction):
+        # Initialize children with the probability predicted by the policy
+        for action, policy_prob in zip(action_space, policy_values):
+            self.children[action] = MCTSNode(policy_prob)
+
+    def add_exploration_noise(
+        self: Self, dirichlet_alpha: float, exploration_fraction: float
+    ) -> None:
         """
         At the start of each search, we add dirichlet noise to the prior of the root to
         encourage the search to explore new actions.
+
+        Args:
+            dirichlet_alpha (float): The alpha parameter for the dirichlet distribution
+            exploration_fraction (float): The fraction of noise to use
         """
+
         actions = list(self.children.keys())
         noise = numpy.random.dirichlet([dirichlet_alpha] * len(actions))
-        frac = exploration_fraction
+        f = exploration_fraction
+
+        # Set the prior probabilities of children as a mix of the network prediction and noise
         for a, n in zip(actions, noise):
-            self.children[a].prior = self.children[a].prior * (1 - frac) + n * frac
+            self.children[a].prior_prob = self.children[a].prior_prob * (1 - f) + n * f
 
 
 class GameHistory:
@@ -424,7 +475,6 @@ class GameHistory:
         self.observation_history = []
         self.action_history = []
         self.reward_history = []
-        self.to_play_history = []
         self.child_visits = []
         self.root_values = []
         self.reanalysed_predicted_root_values = None
@@ -496,15 +546,19 @@ class MinMaxStats:
     A class that holds the min-max values of the tree.
     """
 
-    def __init__(self):
-        self.maximum = -float("inf")
+    def __init__(self: Self) -> None:
+        self.maximum = float("-inf")
         self.minimum = float("inf")
 
-    def update(self, value):
+    def update(self: Self, value: float) -> None:
         self.maximum = max(self.maximum, value)
         self.minimum = min(self.minimum, value)
 
-    def normalize(self, value):
+    def normalize(self: Self, value: float) -> float:
+        """
+        Normalizes value based on the current minimum and maximum of the tree
+        """
+
         if self.maximum > self.minimum:
             # We normalize only when we have set the maximum and minimum values
             return (value - self.minimum) / (self.maximum - self.minimum)

@@ -16,6 +16,7 @@ import utils.self_play as self_play
 import utils.shared_storage as shared_storage
 import utils.trainer as trainer
 from utils.models import MuZeroNetwork, dict_to_cpu
+from utils.self_play import GameHistory
 
 
 class MuZero:
@@ -118,7 +119,7 @@ class MuZero:
             "terminate": False,
         }
 
-        self.replay_buffer = {}
+        self.replay_buffer: dict[int, GameHistory]= {}
 
         model = MuZeroNetwork.from_config(self.config)
 
