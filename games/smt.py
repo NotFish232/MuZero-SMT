@@ -71,19 +71,36 @@ def create_probe_embedding(goal: z3.Goal, probes: list[z3.Probe]) -> np.ndarray:
 
     return values
 
+def visit_softmax_temperature_fn(self: MuZeroConfig, trained_steps: int) -> float:
+    """
+    Parameter to alter the visit count distribution to ensure that the action selection becomes greedier as training progresses.
+    The smaller it is, the more likely the best action (ie with the highest visit count) is chosen.
+
+    Returns:
+        Positive float.
+    """
+    if trained_steps < 0.5 * self.training_steps:
+        return 1.0
+    elif trained_steps < 0.75 * self.training_steps:
+        return 0.5
+    else:
+        return 0.25
+    
 
 class Game(AbstractGame):
     """
     Game wrapper.
     """
 
-    def __init__(self: Self) -> None:
+    def __init__(self: Self, seed: int | None = None) -> None:
         self.files = [*Path(BENCHMARK_DIR).rglob("*.smt2")]
 
         self.probes = [z3.Probe(p) for p in PROBES]
         self.tactics = TACTICS
 
         self.current_goal: z3.Goal = z3.Goal()
+
+        random.seed(seed)
 
         self.reset()
 
@@ -159,7 +176,7 @@ class Game(AbstractGame):
             self_play_delay=0.2,  # Number of seconds to wait after each played game
             training_delay=0,  # Number of seconds to wait after each training step
             ratio=None,  # Desired training steps per self played step ratio. Equivalent to a synchronous version, training can take much longer. Set it to None to disable it
-            visit_softmax_temperature_fn=lambda _self, _steps: 1,
+            visit_softmax_temperature_fn=visit_softmax_temperature_fn,
         )
 
     def _get_observation(self: Self) -> np.ndarray:

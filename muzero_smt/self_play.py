@@ -5,6 +5,7 @@ import numpy
 import numpy as np
 import ray
 import torch as T
+import random
 from typing_extensions import Any, Self, Type
 
 from games.abstract_game import AbstractGame, MuZeroConfig
@@ -25,7 +26,7 @@ class SelfPlay:
         seed: int,
     ) -> None:
         self.config = config
-        self.game = Game()
+        self.game = Game(seed)
 
         # Fix random generator seed
         numpy.random.seed(seed)
@@ -170,6 +171,7 @@ class SelfPlay:
             visit_count_distribution = visit_count_distribution / sum(
                 visit_count_distribution
             )
+
             action = numpy.random.choice(actions, p=visit_count_distribution)
 
         return action
@@ -293,16 +295,23 @@ class MCTS:
         """
 
         selected_action = -1
-        max_puct_score = -1.0
+        max_puct_score = float("-inf")
 
         # Find the child with the maximum PUCT score
-        # Don't worry about multiple having same score since that never happens
-        for action, child in node.children.items():
-            puct_score = self.puct_score(node, child, min_max_stats)
+        puct_scores = [
+            self.puct_score(node, child, min_max_stats)
+            for child in node.children.values()
+        ]
 
-            if puct_score > max_puct_score:
-                selected_action = action
-                max_puct_score = puct_score
+        max_puct_score = max(puct_scores)
+
+        selected_action = random.choice(
+            [
+                action
+                for action, puct_score in zip(node.children.keys(), puct_scores)
+                if puct_score == max_puct_score
+            ]
+        )
 
         return node.children[selected_action], selected_action
 
