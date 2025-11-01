@@ -294,9 +294,6 @@ class MCTS:
             tuple[MCTSNode, int]: tuple of the child and associated action
         """
 
-        selected_action = -1
-        max_puct_score = float("-inf")
-
         # Find the child with the maximum PUCT score
         puct_scores = [
             self.puct_score(node, child, min_max_stats)
