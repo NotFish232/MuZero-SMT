@@ -119,7 +119,7 @@ class MuZero:
             "terminate": False,
         }
 
-        self.replay_buffer: dict[int, GameHistory]= {}
+        self.replay_buffer: dict[int, GameHistory] = {}
 
         model = MuZeroNetwork.from_config(self.config)
 
@@ -414,7 +414,7 @@ class MuZero:
         self_play_worker.close_game.remote()
 
         result = numpy.mean([sum(history.reward_history) for history in results])
-        
+
         return result
 
     def load_model(self, checkpoint_path=None, replay_buffer_path=None):

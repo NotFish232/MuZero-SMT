@@ -136,7 +136,6 @@ class AbstractGame(ABC):
         """
         pass
 
-
     @abstractmethod
     def legal_actions(self: Self) -> list[int]:
         """

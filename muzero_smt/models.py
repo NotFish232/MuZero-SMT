@@ -1,7 +1,8 @@
+import math
+
 import torch as T
 from torch import nn
-from typing_extensions import Any, Self
-import torch
+from typing_extensions import Any, Self, Type
 
 from games.abstract_game import MuZeroConfig
 
@@ -35,69 +36,114 @@ class MuZeroNetwork(nn.Module):
         )
 
     def __init__(
-        self,
-        observation_shape,
+        self: Self,
+        observation_shape: tuple[int, ...],
         stacked_observations,
-        action_space_size,
-        encoding_size,
-        fc_reward_layers,
-        fc_value_layers,
-        fc_policy_layers,
-        fc_representation_layers,
-        fc_dynamics_layers,
-        support_size,
-    ):
+        action_space_size: int,
+        encoded_state_size: int,
+        fc_reward_layers: list[int],
+        fc_value_layers: list[int],
+        fc_policy_layers: list[int],
+        fc_representation_layers: list[int],
+        fc_dynamics_layers: list[int],
+        support_size: int,
+    ) -> None:
         super().__init__()
+
         self.action_space_size = action_space_size
+        self.encoded_state_size = encoded_state_size
+
+        # Size of entire support with a support for values in range -[support_size, support_size]
         self.full_support_size = 2 * support_size + 1
 
-        self.representation_network = nn.DataParallel(
-            mlp(
-                observation_shape[0]
-                * observation_shape[1]
-                * observation_shape[2]
-                * (stacked_observations + 1)
-                + stacked_observations * observation_shape[1] * observation_shape[2],
-                fc_representation_layers,
-                encoding_size,
-            )
+        # Representation network
+        # Input is a stack of `stacked_observations` number previous observations
+        # + the current observation
+        # + a `stacked_observations` number of frames where all elements are the action taken
+        self.representation_network = mlp(
+            (stacked_observations + 1) * math.prod(observation_shape)
+            + stacked_observations * math.prod(observation_shape[1:]),
+            fc_representation_layers,
+            self.encoded_state_size,
         )
 
-        self.dynamics_encoded_state_network = nn.DataParallel(
-            mlp(
-                encoding_size + self.action_space_size,
-                fc_dynamics_layers,
-                encoding_size,
-            )
-        )
-        self.dynamics_reward_network = nn.DataParallel(
-            mlp(encoding_size, fc_reward_layers, self.full_support_size)
+        # Dynamics state transition network
+        # Input is the encoded space + an action
+        self.dynamics_state_network = mlp(
+            self.encoded_state_size + self.action_space_size,
+            fc_dynamics_layers,
+            self.encoded_state_size,
         )
 
-        self.prediction_policy_network = nn.DataParallel(
-            mlp(encoding_size, fc_policy_layers, self.action_space_size)
-        )
-        self.prediction_value_network = nn.DataParallel(
-            mlp(encoding_size, fc_value_layers, self.full_support_size)
+        # Dynamics reward network
+        # Input is the encoded space
+        # Output is a support of a scalar representing the reward
+        self.dynamics_reward_network = mlp(
+            self.encoded_state_size, fc_reward_layers, self.full_support_size
         )
 
-    def prediction(self, encoded_state):
+        # Prediction policy network
+        # Input is the encoded space
+        # Output is logits over the action space
+        self.prediction_policy_network = mlp(
+            self.encoded_state_size, fc_policy_layers, self.action_space_size
+        )
+
+        # Prediction value network
+        # Input is the encoded space
+        # Output is a support of a scalar representing the value
+        self.prediction_value_network = mlp(
+            self.encoded_state_size, fc_value_layers, self.full_support_size
+        )
+
+    def prediction(self: Self, encoded_state: T.Tensor) -> tuple[T.Tensor, T.Tensor]:
+        """
+        Predicts the policy logits and value of the encode_state through the prediction network
+
+        Args:
+            encoded_state (T.Tensor): The hidden state representation of the current state
+
+        Returns:
+            tuple[T.Tensor, T.Tensor]: A tuple of the policy logits and the value tensor
+        """
+
+        # encoded_state: (batch size, encoded state size)
+
         policy_logits = self.prediction_policy_network(encoded_state)
         value = self.prediction_value_network(encoded_state)
+
+        # policy_logits: (batch size, action space size)
+        # value: (batch size, full supports size)
+
         return policy_logits, value
 
-    def representation(self, observation):
+    def representation(self: Self, observation: T.Tensor) -> T.Tensor:
+        """
+        Creates the representation of the observation using the representation network
+
+        Args:
+            observation (T.Tensor): The observation associated with the current state
+
+        Returns:
+            T.Tensor: The encoded state representation of the current observation
+        """
+
+        # observation: (batch size, *observation shape)
         encoded_state = self.representation_network(
             observation.view(observation.shape[0], -1)
         )
+
         # Scale encoded state between [0, 1] (See appendix paper Training)
-        min_encoded_state = encoded_state.min(1, keepdim=True)[0]
-        max_encoded_state = encoded_state.max(1, keepdim=True)[0]
-        scale_encoded_state = max_encoded_state - min_encoded_state
-        scale_encoded_state[scale_encoded_state < 1e-5] += 1e-5
-        encoded_state_normalized = (
-            encoded_state - min_encoded_state
-        ) / scale_encoded_state
+
+        # Find min and max values along non-batch dimension
+        min_encoded_state = T.min(encoded_state, dim=1, keepdim=True)[0]
+        max_encoded_state = T.max(encoded_state, dim=1, keepdim=True)[0]
+
+        # For numerical stability add a small epsilon
+        encoded_state_normalized = (encoded_state - min_encoded_state) / (
+            max_encoded_state - min_encoded_state + 1e-8
+        )
+
         return encoded_state_normalized
 
     def dynamics(self, encoded_state, action):
@@ -108,7 +154,7 @@ class MuZeroNetwork(nn.Module):
         action_one_hot.scatter_(1, action.long(), 1.0)
         x = T.cat((encoded_state, action_one_hot), dim=1)
 
-        next_encoded_state = self.dynamics_encoded_state_network(x)
+        next_encoded_state = self.dynamics_state_network(x)
 
         reward = self.dynamics_reward_network(next_encoded_state)
 
@@ -150,17 +196,33 @@ class MuZeroNetwork(nn.Module):
 
 
 def mlp(
-    input_size,
-    layer_sizes,
-    output_size,
-    output_activation=nn.Identity,
-    activation=nn.ELU,
-):
+    input_size: int,
+    layer_sizes: list[int],
+    output_size: int,
+    activation: Type[nn.Module] = nn.ELU,
+    output_activation: Type[nn.Module] = nn.Identity,
+) -> nn.Module:
+    """
+    Constructs a MLP outlined by the passed in sizes
+
+    Args:
+        input_size (int): The size of the input layer
+        layer_sizes (list[int]): The size of the hidden layers
+        output_size (int): The size of the output layer
+        activation (nn.Module, optional): The activation function for hidden layers. Defaults to nn.ELU().
+        output_activation (nn.Module, optional): The action function for output layer. Defaults to nn.Identity().
+
+    Returns:
+        nn.Module: The MLP comprised of the specified parameters
+    """
+
     sizes = [input_size] + layer_sizes + [output_size]
+
     layers = []
     for i in range(len(sizes) - 1):
         act = activation if i < len(sizes) - 2 else output_activation
         layers += [nn.Linear(sizes[i], sizes[i + 1]), act()]
+
     return nn.Sequential(*layers)
 
 

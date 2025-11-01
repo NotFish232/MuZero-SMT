@@ -1,8 +1,6 @@
-from muzero_smt.models import scalar_to_support, support_to_scalar
-
-
 import torch as T
 
+from muzero_smt.models import scalar_to_support, support_to_scalar
 
 num_supports = 10
 x = T.arange(-50, 50).reshape(100)

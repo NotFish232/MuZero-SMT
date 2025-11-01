@@ -94,9 +94,7 @@ class SelfPlay:
 
         self.close_game()
 
-    def play_game(
-        self: Self, temperature, render_game: bool
-    ) -> "GameHistory":
+    def play_game(self: Self, temperature, render_game: bool) -> "GameHistory":
         """
         Play one game with actions based on the Monte Carlo tree search at each moves.
         """

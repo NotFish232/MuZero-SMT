@@ -25,13 +25,17 @@ def visit_softmax_temperature_fn(self: MuZeroConfig, trained_steps: int) -> floa
         return 0.25
 
 
+EPISODE_LENGTH = 1_000
+
+
 class Game(AbstractGame):
     """
     Game wrapper.
     """
 
-    def __init__(self: Self, seed=None):
-        self.env = gym.make("CartPole-v1")
+    def __init__(self: Self, seed: int | None = None):
+        self.env = gym.make("CartPole-v1", max_episode_steps=EPISODE_LENGTH)
+        print("SPEC", self.env.spec)
         if seed is not None:
             self.env.reset(seed=seed)
 
@@ -57,7 +61,7 @@ class Game(AbstractGame):
             ,
             num_workers=1,  # Number of simultaneous threads/workers self-playing to feed the replay buffer
             selfplay_on_gpu=False,
-            max_moves=500,  # Maximum number of moves if game is not finished before
+            max_moves=EPISODE_LENGTH,  # Maximum number of moves if game is not finished before
             num_simulations=50,  # Number of future moves self-simulated
             discount=0.997,  # Chronological discount of the reward
             # Root prior exploration noise
