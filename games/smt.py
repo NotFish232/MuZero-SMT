@@ -173,7 +173,7 @@ class Game(AbstractGame):
             use_last_model_value=True,  # Use the last model to provide a fresher, stable n-step value (See paper appendix Reanalyze)
             reanalyse_on_gpu=False,
             ### Adjust the self play / training ratio to avoid over/underfitting
-            self_play_delay=0.2,  # Number of seconds to wait after each played game
+            self_play_delay=0,  # Number of seconds to wait after each played game
             training_delay=0,  # Number of seconds to wait after each training step
             ratio=None,  # Desired training steps per self played step ratio. Equivalent to a synchronous version, training can take much longer. Set it to None to disable it
             visit_softmax_temperature_fn=visit_softmax_temperature_fn,

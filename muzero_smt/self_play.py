@@ -305,6 +305,8 @@ class MCTS:
 
         max_puct_score = max(puct_scores)
 
+        # Only selecting the first introduces bias that is actually noticable for performance
+        # Break this bias by selecting a random choice
         selected_action = random.choice(
             [
                 action
