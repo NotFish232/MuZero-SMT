@@ -35,7 +35,7 @@ class Game(AbstractGame):
 
     def __init__(self: Self, seed: int | None = None):
         self.env = gym.make("CartPole-v1", max_episode_steps=EPISODE_LENGTH)
-        print("SPEC", self.env.spec)
+
         if seed is not None:
             self.env.reset(seed=seed)
 

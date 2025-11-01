@@ -38,7 +38,7 @@ class MuZeroNetwork(nn.Module):
     def __init__(
         self: Self,
         observation_shape: tuple[int, ...],
-        stacked_observations,
+        stacked_observations: int,
         action_space_size: int,
         encoded_state_size: int,
         fc_reward_layers: list[int],
@@ -101,10 +101,10 @@ class MuZeroNetwork(nn.Module):
         Predicts the policy logits and value of the encode_state through the prediction network
 
         Args:
-            encoded_state (T.Tensor): The hidden state representation of the current state
+            encoded_state (torch.Tensor): The hidden state representation of the current state
 
         Returns:
-            tuple[T.Tensor, T.Tensor]: A tuple of the policy logits and the value tensor
+            tuple[torch.Tensor, torch.Tensor]: A tuple of the policy logits and the value tensor
         """
 
         # encoded_state: (batch size, encoded state size)
@@ -122,13 +122,15 @@ class MuZeroNetwork(nn.Module):
         Creates the representation of the observation using the representation network
 
         Args:
-            observation (T.Tensor): The observation associated with the current state
+            observation (torch.Tensor): The observation associated with the current state
 
         Returns:
             T.Tensor: The encoded state representation of the current observation
         """
 
         # observation: (batch size, *observation shape)
+
+        # encoded_state: (batch size, encoded state size)
         encoded_state = self.representation_network(
             observation.view(observation.shape[0], -1)
         )
@@ -146,41 +148,82 @@ class MuZeroNetwork(nn.Module):
 
         return encoded_state_normalized
 
-    def dynamics(self, encoded_state, action):
-        # Stack encoded_state with a game specific one hot encoded action (See paper appendix Network Architecture)
-        action_one_hot = (
-            T.zeros((action.shape[0], self.action_space_size)).to(action.device).float()
+    def dynamics(
+        self: Self, encoded_state: T.Tensor, action: T.Tensor
+    ) -> tuple[T.Tensor, T.Tensor]:
+        """
+        Using the dynamics network, predicts the next hidden state and reward associated with the ucrrent state
+
+        Args:
+            encoded_state (torch.Tensor): The current hidden state
+            action (torch.Tensor): The action being taken in the current state
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor]: The next hidden state and the current reward
+        """
+
+        # encoded_state: (batch size, encoded state size)
+        # action: (batch size, 1)
+
+        # One hot encode the action
+        action_one_hot = T.zeros(
+            (action.shape[0], self.action_space_size),
+            dtype=T.float32,
+            device=action.device,
         )
-        action_one_hot.scatter_(1, action.long(), 1.0)
+        action_one_hot.scatter_(1, action.to(T.int64), 1.0)
+
+        # Stack encoded_state with a game specific one hot encoded action (See paper appendix Network Architecture)
         x = T.cat((encoded_state, action_one_hot), dim=1)
 
+        # Using the dynamics networks get both the next state and reward
         next_encoded_state = self.dynamics_state_network(x)
-
         reward = self.dynamics_reward_network(next_encoded_state)
 
         # Scale encoded state between [0, 1] (See paper appendix Training)
-        min_next_encoded_state = next_encoded_state.min(1, keepdim=True)[0]
-        max_next_encoded_state = next_encoded_state.max(1, keepdim=True)[0]
-        scale_next_encoded_state = max_next_encoded_state - min_next_encoded_state
-        scale_next_encoded_state[scale_next_encoded_state < 1e-5] += 1e-5
+
+        # Find min and max values along non-batch dimensions
+        min_next_encoded_state = T.min(next_encoded_state, dim=1, keepdim=True)[0]
+        max_next_encoded_state = T.max(next_encoded_state, dim=1, keepdim=True)[0]
+
+        # for numerical stability add a small epsilon
         next_encoded_state_normalized = (
             next_encoded_state - min_next_encoded_state
-        ) / scale_next_encoded_state
+        ) / (max_next_encoded_state - min_next_encoded_state + 1e-8)
 
         return next_encoded_state_normalized, reward
 
-    def initial_inference(self, observation):
+    def initial_inference(
+        self: Self, observation: T.Tensor
+    ) -> tuple[T.Tensor, T.Tensor, T.Tensor, T.Tensor]:
+        """
+        Runs the intial inference based on the starting observation
+
+        Args:
+            observation (torch.Tensor): The initial observation
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: The value, reward, policy, and state
+        """
+
+        # observation: (batch size, *observation shape)
+
         encoded_state = self.representation(observation)
         policy_logits, value = self.prediction(encoded_state)
-        # reward equal to 0 for consistency
-        reward = T.log(
-            (
-                T.zeros(1, self.full_support_size)
-                .scatter(1, T.tensor([[self.full_support_size // 2]]).long(), 1.0)
-                .repeat(len(observation), 1)
-                .to(observation.device)
-            )
+
+        # reward equal to 0 for consistency, log it to turn it into logits which will be softmaxed later
+        reward = T.zeros(
+            (observation.shape[0], self.full_support_size),
+            dtype=T.float32,
+            device=observation.device,
         )
+        reward[:, self.full_support_size // 2] = 1
+        reward = T.log_(reward)
+
+        # encoded_state: (batch size, encoded state size)
+        # policy_logits: (batch size, action space size)
+        # value: (batch size, full support size)
+        # reward: (batch size, full support size)
 
         return (
             value,
@@ -189,9 +232,31 @@ class MuZeroNetwork(nn.Module):
             encoded_state,
         )
 
-    def recurrent_inference(self, encoded_state, action):
+    def recurrent_inference(
+        self: Self, encoded_state: T.Tensor, action: T.Tensor
+    ) -> tuple[T.Tensor, T.Tensor, T.Tensor, T.Tensor]:
+        """
+        Runs the recurrent inference based on the previous hidden state and an action
+
+        Args:
+            encoded_state (torch.Tensor): The current hidden state
+            action (torch.Tensor): The action taken at that state
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: The value, reward, policy, and state
+        """
+
+        # encoded_state: (batch size, encoded state size)
+        # action: (batch size, 1)
+
         next_encoded_state, reward = self.dynamics(encoded_state, action)
         policy_logits, value = self.prediction(next_encoded_state)
+
+        # next_encoded_state: (batch size, encoded state size)
+        # reward: (batch size, full support size)
+        # policy_logits (batch size, action space size)
+        # value: (batch size, full support size)
+
         return value, reward, policy_logits, next_encoded_state
 
 
@@ -290,7 +355,7 @@ def scalar_to_support(x: T.Tensor, support_size: int, eps: float = 1e-3) -> T.Te
     # Value of first support is how close it is to floor, and value of second is how close it is to the ceiling
     # Index is the floor offset by the support size to deal with negative values
     support_1_vals = (x_floor - x + 1).unsqueeze_(-1)
-    support_1_idxs = (x_floor + support_size).to(T.int32).unsqueeze_(-1)
+    support_1_idxs = (x_floor + support_size).to(T.int64).unsqueeze_(-1)
 
     support_2_vals = 1 - support_1_vals
     support_2_idxs = support_1_idxs + 1
