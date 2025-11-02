@@ -3,7 +3,6 @@ import logging
 import pathlib
 import random
 from pathlib import Path
-
 from time import perf_counter
 
 import numpy as np
@@ -231,7 +230,9 @@ class Game(AbstractGame):
                     f"Expected 1 subgoal but found {len(sub_goals)} subgoals instead"
                 )
 
-            logging.info(f'{current_file.stem} | Ran tactic "{TACTICS[action]}" successfully')
+            logging.info(
+                f'{current_file.stem} | Ran tactic "{TACTICS[action]}" successfully'
+            )
 
             self.current_goal = sub_goals[0]
 

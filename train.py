@@ -173,6 +173,8 @@ class MuZero:
             self.checkpoint, self.replay_buffer, self.config
         )
 
+        print(type(self.replay_buffer_worker))
+
         if self.config.use_last_model_value:
             self.reanalyse_worker = replay_buffer.Reanalyse.options(
                 num_cpus=0,

@@ -1,11 +1,12 @@
 import math
+import random
 import time
 
 import numpy
 import numpy as np
 import ray
 import torch as T
-import random
+from ray.actor import ActorHandle
 from typing_extensions import Any, Self, Type
 
 from games.abstract_game import AbstractGame, MuZeroConfig
@@ -39,7 +40,9 @@ class SelfPlay:
         self.model.to(T.device("cuda" if self.config.selfplay_on_gpu else "cpu"))
         self.model.eval()
 
-    def continuous_self_play(self, shared_storage, replay_buffer: ReplayBuffer, test_mode=False):
+    def continuous_self_play(
+        self, shared_storage, replay_buffer: ActorHandle[ReplayBuffer], test_mode=False
+    ):
         while ray.get(
             shared_storage.get_info.remote("training_step")
         ) < self.config.training_steps and not ray.get(
@@ -219,17 +222,15 @@ class MCTS:
 
         # Get inital inference from model
         (
-            root_predicted_value,
-            reward,
+            value_support,
+            reward_support,
             policy_logits,
             hidden_state,
         ) = model.initial_inference(observation)
 
         # Convert model predicted root value and reward to an actual scalar
-        root_predicted_value = support_to_scalar(
-            root_predicted_value, self.config.support_size
-        ).item()
-        reward = support_to_scalar(reward, self.config.support_size).item()
+        value = support_to_scalar(value_support, self.config.support_size).item()
+        reward = support_to_scalar(reward_support, self.config.support_size).item()
 
         # Expand Root
         root.expand(
@@ -259,14 +260,16 @@ class MCTS:
             # Get the parent of the last node which is not expanded
             # Calculate the new hidden state, and the policy / reward of that node based on the parent's hiden state
             parent = search_path[-2]
-            value, reward, policy_logits, hidden_state = model.recurrent_inference(
-                parent.hidden_state,
-                T.tensor([[action]]).to(device),
+            value_support, reward_support, policy_logits, hidden_state = (
+                model.recurrent_inference(
+                    parent.hidden_state,
+                    T.tensor([[action]]).to(device),
+                )
             )
 
             # Convert model predicted value and reward to scalars
-            value = support_to_scalar(value, self.config.support_size).item()
-            reward = support_to_scalar(reward, self.config.support_size).item()
+            value = support_to_scalar(value_support, self.config.support_size).item()
+            reward = support_to_scalar(reward_support, self.config.support_size).item()
 
             # Expand the first unexpanded node
             node.expand(
@@ -386,7 +389,7 @@ class MCTSNode:
         self.value_sum = 0.0
 
         # Information about the current state
-        self.hidden_state: T.Tensor | None = None
+        self.hidden_state: T.Tensor = T.empty()
         self.reward = 0.0
 
         self.children: dict[int, MCTSNode] = {}
