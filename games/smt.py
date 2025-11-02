@@ -4,6 +4,8 @@ import pathlib
 import random
 from pathlib import Path
 
+from time import perf_counter
+
 import numpy as np
 import torch
 import z3  # type: ignore
@@ -19,7 +21,9 @@ logging.basicConfig(
 )
 
 
-TACTIC_TIMEOUT = 300
+SOLVING_TIMEOUT = 60
+
+MAX_NUM_TACTICS = 10
 
 
 BENCHMARK_DIR = "data/non-incremental/QF_NIA/20170427-VeryMax/CInteger"
@@ -61,15 +65,20 @@ PROBES = [
 ]
 
 
-def create_probe_embedding(goal: z3.Goal, probes: list[z3.Probe]) -> np.ndarray:
-    values = np.zeros(len(probes), dtype=np.float64)
+def create_probe_embedding(
+    goal: z3.Goal, probes: list[z3.Probe], time_used: float
+) -> np.ndarray:
+    values = np.zeros(len(probes) + 1, dtype=np.float64)
 
     for i, probe in enumerate(probes):
         probe_res = probe(goal)
 
         values[i] = probe_res
 
+    values[len(probes)] = time_used
+
     return values
+
 
 def visit_softmax_temperature_fn(self: MuZeroConfig, trained_steps: int) -> float:
     """
@@ -85,24 +94,12 @@ def visit_softmax_temperature_fn(self: MuZeroConfig, trained_steps: int) -> floa
         return 0.5
     else:
         return 0.25
-    
+
 
 class Game(AbstractGame):
     """
     Game wrapper.
     """
-
-    def __init__(self: Self, seed: int | None = None) -> None:
-        self.files = [*Path(BENCHMARK_DIR).rglob("*.smt2")]
-
-        self.probes = [z3.Probe(p) for p in PROBES]
-        self.tactics = TACTICS
-
-        self.current_goal: z3.Goal = z3.Goal()
-
-        random.seed(seed)
-
-        self.reset()
 
     @override
     @staticmethod
@@ -114,7 +111,7 @@ class Game(AbstractGame):
             observation_shape=(
                 1,
                 1,
-                len(PROBES),
+                len(PROBES) + 1,
             ),  # Dimensions of the game observation, must be 3D (channel, height, width). For a 1D array, please reshape it to (1, 1, length of array)
             action_space=list(
                 range(len(TACTICS))
@@ -123,9 +120,9 @@ class Game(AbstractGame):
             ### Self-Play
             num_workers=5,  # Number of simultaneous threads/workers self-playing to feed the replay buffer
             selfplay_on_gpu=False,
-            max_moves=10,  # Maximum number of moves if game is not finished before
+            max_moves=MAX_NUM_TACTICS,  # Maximum number of moves if game is not finished before
             num_simulations=10,  # Number of future moves self-simulated
-            discount=0.978,  # Chronological discount of the reward
+            discount=1,  # Chronological discount of the reward
             # Root prior exploration noise
             root_dirichlet_alpha=0.25,
             root_exploration_fraction=0.25,
@@ -179,8 +176,25 @@ class Game(AbstractGame):
             visit_softmax_temperature_fn=visit_softmax_temperature_fn,
         )
 
+    def __init__(self: Self, seed: int | None = None, test_mode: bool = False) -> None:
+        self.files = [*Path(BENCHMARK_DIR).rglob("*.smt2")]
+
+        self.probes = [z3.Probe(p) for p in PROBES]
+        self.tactics = [z3.Tactic(t) for t in TACTICS]
+
+        self.current_goal: z3.Goal = z3.Goal()
+        self.time_spent = 0.0
+        self.num_tactics_applied = 0
+
+        self.test_mode = test_mode
+        self.selected_idx = -1
+
+        random.seed(seed)
+
     def _get_observation(self: Self) -> np.ndarray:
-        return create_probe_embedding(self.current_goal, self.probes).reshape(1, 1, -1)
+        return create_probe_embedding(
+            self.current_goal, self.probes, self.time_spent
+        ).reshape(1, 1, -1)
 
     def step(self: Self, action: int) -> tuple[np.ndarray, float, bool]:
         """
@@ -193,38 +207,67 @@ class Game(AbstractGame):
             The new observation, the reward and a boolean if the game has ended.
         """
 
+        current_file = self.files[self.selected_idx]
         tactic = self.tactics[action]
-        reward: float = 0
+
+        reward = 0.0
+        done = False
+
+        self.num_tactics_applied += 1
+
+        acc_tactic = z3.TryFor(tactic, int((SOLVING_TIMEOUT - self.time_spent) * 1_000))
+
         try:
-            acc_tactic = z3.TryFor(z3.Tactic(tactic), TACTIC_TIMEOUT * 1_000)
+            start = perf_counter()
+
             sub_goals = acc_tactic(self.current_goal)
+
+            end = perf_counter()
+
+            self.time_spent += end - start
 
             if len(sub_goals) != 1:
                 raise Exception(
                     f"Expected 1 subgoal but found {len(sub_goals)} subgoals instead"
                 )
 
-            if len(sub_goals[0]) == 0 or z3.is_false(sub_goals[0]):
-                reward = 1
-                logging.info(
-                    f"{self.current_file.stem} | Successfully found SAT / UNSAT"
-                )
-            else:
-                reward = 0
+            logging.info(f'{current_file.stem} | Ran tactic "{TACTICS[action]}" successfully')
 
             self.current_goal = sub_goals[0]
 
-            logging.info(
-                f'{self.current_file.stem} | Ran tactic "{tactic}" successfully'
-            )
+            if len(self.current_goal) == 0 or self.current_goal.inconsistent():
+                reward = 2 - self.time_spent / SOLVING_TIMEOUT
+                done = True
 
-        except Exception as e:
-            reward = -0.1
-            logging.info(
-                f'{self.current_file.stem} | Error encountered running tactic "{tactic}", {e}'
-            )
+                logging.info(
+                    f"{current_file.stem} | Found SAT / UNSAT ({self.time_spent:.3f}s)"
+                )
+            elif self.num_tactics_applied >= MAX_NUM_TACTICS:
+                reward = -1
+                done = True
 
-        return self._get_observation(), reward, reward == 1
+                logging.info(f"{current_file.stem} | TERM - Ran max number tactics")
+
+        except z3.Z3Exception as e:
+            msg = e.args[0].decode()
+
+            if msg == "canceled":
+                done = True
+                reward = -1
+
+                logging.info(f"{current_file.stem} | TERM - Timing out")
+            elif self.num_tactics_applied >= MAX_NUM_TACTICS:
+                reward = -1
+                done = True
+
+                logging.info(f"{current_file.stem} | TERM - Ran max number tactics")
+            else:
+                reward = -0.1
+                logging.info(
+                    f'{current_file.stem} | Error encountered running tactic "{TACTICS[action]}", {e}'
+                )
+
+        return self._get_observation(), reward, done
 
     def legal_actions(self: Self) -> list[int]:
         """
@@ -247,10 +290,17 @@ class Game(AbstractGame):
             Initial observation of the game.
         """
 
-        self.current_file = random.choice(self.files)
+        # Run each benchmark sequentially in test mode
+        if self.test_mode:
+            self.selected_idx += 1
+        else:
+            self.selected_idx = random.randint(0, len(self.files) - 1)
 
         self.current_goal = z3.Goal()
-        self.current_goal.add(z3.parse_smt2_file(str(self.current_file)))
+        self.current_goal.add(z3.parse_smt2_file(str(self.files[self.selected_idx])))
+
+        self.time_spent = 0.0
+        self.num_tactics_applied = 0
 
         return self._get_observation()
 

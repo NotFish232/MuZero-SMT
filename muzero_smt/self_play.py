@@ -10,6 +10,7 @@ from typing_extensions import Any, Self, Type
 
 from games.abstract_game import AbstractGame, MuZeroConfig
 from muzero_smt.models import MuZeroNetwork, support_to_scalar
+from muzero_smt.replay_buffer import ReplayBuffer
 
 
 @ray.remote
@@ -38,7 +39,7 @@ class SelfPlay:
         self.model.to(T.device("cuda" if self.config.selfplay_on_gpu else "cpu"))
         self.model.eval()
 
-    def continuous_self_play(self, shared_storage, replay_buffer, test_mode=False):
+    def continuous_self_play(self, shared_storage, replay_buffer: ReplayBuffer, test_mode=False):
         while ray.get(
             shared_storage.get_info.remote("training_step")
         ) < self.config.training_steps and not ray.get(
