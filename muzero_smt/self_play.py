@@ -2,7 +2,7 @@ import math
 import random
 import time
 
-import numpy
+
 import numpy as np
 import ray
 import torch as T
@@ -31,7 +31,7 @@ class SelfPlay:
         self.game = Game(seed)
 
         # Fix random generator seed
-        numpy.random.seed(seed)
+        np.random.seed(seed)
         T.manual_seed(seed)
 
         # Initialize the network
@@ -75,7 +75,7 @@ class SelfPlay:
                     {
                         "episode_length": len(game_history.action_history) - 1,
                         "total_reward": sum(game_history.reward_history),
-                        "mean_value": numpy.mean(
+                        "mean_value": np.mean(
                             [value for value in game_history.root_values if value]
                         ),
                     }
@@ -123,11 +123,12 @@ class SelfPlay:
             while (
                 not done and len(game_history.action_history) <= self.config.max_moves
             ):
+                # Stack the last `self.config.stacked_observations` number of observations
                 stacked_observations = game_history.get_stacked_observations(
                     -1, self.config.stacked_observations, len(self.config.action_space)
                 )
 
-                # Choose the action
+                # Choose the next action based on MCTS' visit distributions and a temperature parameter
                 root = MCTS(self.config).run(
                     self.model,
                     stacked_observations,
@@ -155,28 +156,32 @@ class SelfPlay:
         self.game.close()
 
     @staticmethod
-    def select_action(node, temperature):
+    def select_action(node: "MCTSNode", temperature: float) -> int:
         """
         Select action according to the visit count distribution and the temperature.
         The temperature is changed dynamically with the visit_softmax_temperature function
         in the config.
         """
-        visit_counts = numpy.array(
-            [child.visit_count for child in node.children.values()], dtype="int32"
-        )
+
         actions = [action for action in node.children.keys()]
+        visit_counts = np.array([child.visit_count for child in node.children.values()])
+
         if temperature == 0:
-            action = actions[numpy.argmax(visit_counts)]
+            # Greedly select the best action
+            action = actions[np.argmax(visit_counts)]
         elif temperature == float("inf"):
-            action = numpy.random.choice(actions)
+            # Select each action with equal probability
+            action = np.random.choice(actions)
         else:
             # See paper appendix Data Generation
+
+            # Select each action with a probability given by a weight of the visit count and temperature
             visit_count_distribution = visit_counts ** (1 / temperature)
             visit_count_distribution = visit_count_distribution / sum(
                 visit_count_distribution
             )
 
-            action = numpy.random.choice(actions, p=visit_count_distribution)
+            action = np.random.choice(actions, p=visit_count_distribution)
 
         return action
 
@@ -389,7 +394,7 @@ class MCTSNode:
         self.value_sum = 0.0
 
         # Information about the current state
-        self.hidden_state: T.Tensor = T.empty()
+        self.hidden_state: T.Tensor = T.empty(0)
         self.reward = 0.0
 
         self.children: dict[int, MCTSNode] = {}
@@ -452,7 +457,7 @@ class MCTSNode:
         """
 
         actions = list(self.children.keys())
-        noise = numpy.random.dirichlet([dirichlet_alpha] * len(actions))
+        noise = np.random.dirichlet([dirichlet_alpha] * len(actions))
         f = exploration_fraction
 
         # Set the prior probabilities of children as a mix of the network prediction and noise
@@ -510,25 +515,25 @@ class GameHistory:
             range(index - num_stacked_observations, index)
         ):
             if 0 <= past_observation_index:
-                previous_observation = numpy.concatenate(
+                previous_observation = np.concatenate(
                     (
                         self.observation_history[past_observation_index],
                         [
-                            numpy.ones_like(stacked_observations[0])
+                            np.ones_like(stacked_observations[0])
                             * self.action_history[past_observation_index + 1]
                             / action_space_size
                         ],
                     )
                 )
             else:
-                previous_observation = numpy.concatenate(
+                previous_observation = np.concatenate(
                     (
-                        numpy.zeros_like(self.observation_history[index]),
-                        [numpy.zeros_like(stacked_observations[0])],
+                        np.zeros_like(self.observation_history[index]),
+                        [np.zeros_like(stacked_observations[0])],
                     )
                 )
 
-            stacked_observations = numpy.concatenate(
+            stacked_observations = np.concatenate(
                 (stacked_observations, previous_observation)
             )
 

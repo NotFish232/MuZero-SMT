@@ -11,6 +11,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from typing_extensions import Any, Self
 
+from games.abstract_game import MuZeroConfig
 import muzero_smt.replay_buffer as replay_buffer
 import muzero_smt.self_play as self_play
 import muzero_smt.shared_storage as shared_storage
@@ -40,7 +41,6 @@ class MuZero:
     def __init__(
         self: Self,
         game_name: str,
-        config: dict[str, Any] | None = None,
         split_resources_in: int = 1,
     ) -> None:
         # Load the game and the config from the module with the game name
@@ -54,18 +54,6 @@ class MuZero:
             )
             raise err
 
-        # Overwrite the config
-        if config:
-            if type(config) is dict:
-                for param, value in config.items():
-                    if hasattr(self.config, param):
-                        setattr(self.config, param, value)
-                    else:
-                        raise AttributeError(
-                            f"{game_name} config has no attribute '{param}'. Check the config file for the complete list of parameters."
-                        )
-            else:
-                self.config = config
 
         # Fix random generator seed
         numpy.random.seed(self.config.seed)
@@ -172,8 +160,6 @@ class MuZero:
         self.replay_buffer_worker = replay_buffer.ReplayBuffer.remote(
             self.checkpoint, self.replay_buffer, self.config
         )
-
-        print(type(self.replay_buffer_worker))
 
         if self.config.use_last_model_value:
             self.reanalyse_worker = replay_buffer.Reanalyse.options(
@@ -460,7 +446,7 @@ class MuZero:
             self.checkpoint["num_reanalysed_games"] = 0
 
 
-GAME_NAME = "smt"
+GAME_NAME = "cartpole"
 
 
 def main() -> None:
