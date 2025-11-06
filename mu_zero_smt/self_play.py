@@ -2,7 +2,6 @@ import math
 import random
 import time
 
-
 import numpy as np
 import ray
 import torch as T
@@ -10,9 +9,9 @@ from ray.actor import ActorHandle
 from typing_extensions import Any, Self, Type
 
 from mu_zero_smt.games.abstract_game import AbstractGame
-from mu_zero_smt.utils.config import MuZeroConfig
 from mu_zero_smt.models import MuZeroNetwork, support_to_scalar
 from mu_zero_smt.replay_buffer import ReplayBuffer
+from mu_zero_smt.utils.config import MuZeroConfig
 
 
 @ray.remote
@@ -126,11 +125,15 @@ class SelfPlay:
             ):
                 # If conversion function is defined used that to get stacked observations
                 if self.config.conversion_fn is not None:
-                    stacked_observations = self.config.conversion_fn(game_history, self.config)
+                    stacked_observations = self.config.conversion_fn(
+                        game_history, self.config
+                    )
                 else:
                     # Stack the last `self.config.stacked_observations` number of observations
                     stacked_observations = game_history.get_stacked_observations(
-                        -1, self.config.stacked_observations, len(self.config.action_space)
+                        -1,
+                        self.config.stacked_observations,
+                        len(self.config.action_space),
                     )
 
                 # Choose the next action based on MCTS' visit distributions and a temperature parameter

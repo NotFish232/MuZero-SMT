@@ -1,9 +1,7 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from pathlib import Path
 
 import numpy as np
-from typing_extensions import Callable, Self, Any, Type
+from typing_extensions import Self
 
 from mu_zero_smt.utils.config import MuZeroConfig
 
@@ -24,8 +22,6 @@ class AbstractGame(ABC):
         Get the MuZeroConfig for this game. Used for training
         """
 
-        pass
-
     @abstractmethod
     def step(self: Self, action: int) -> tuple[np.ndarray, float, bool]:
         """
@@ -37,7 +33,6 @@ class AbstractGame(ABC):
         Returns:
             The new observation, the reward and a boolean if the game has ended.
         """
-        pass
 
     @abstractmethod
     def legal_actions(self: Self) -> list[int]:
@@ -51,7 +46,6 @@ class AbstractGame(ABC):
         Returns:
             An array of integers, subset of the action space.
         """
-        pass
 
     @abstractmethod
     def reset(self: Self) -> np.ndarray:
@@ -61,20 +55,17 @@ class AbstractGame(ABC):
         Returns:
             Initial observation of the game.
         """
-        pass
 
     def close(self: Self) -> None:
         """
         Properly close the game.
         """
-        pass
 
     @abstractmethod
     def render(self: Self) -> None:
         """
         Display the game observation.
         """
-        pass
 
     def action_to_string(self: Self, action: int) -> str:
         """

@@ -1,14 +1,12 @@
 import math
 
 import torch as T
-from torch import nn
 from typing_extensions import Self, override
 
 from mu_zero_smt.utils.config import MuZeroConfig
 
 from .mu_zero_network import MuZeroNetwork
 from .utils import mlp
-
 
 
 class FTCNetwork(MuZeroNetwork):
@@ -253,4 +251,3 @@ class FTCNetwork(MuZeroNetwork):
         # value: (batch size, full support size)
 
         return value, reward, policy_logits, next_encoded_state
-

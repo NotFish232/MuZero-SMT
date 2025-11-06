@@ -5,9 +5,7 @@ import numpy
 import ray
 import torch
 
-
 from mu_zero_smt.models import (
-    MuZeroNetwork,
     dict_to_cpu,
     scalar_to_support,
     support_to_scalar,

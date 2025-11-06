@@ -10,8 +10,9 @@ import torch
 import z3  # type: ignore
 from typing_extensions import Self, override
 
-from .abstract_game import AbstractGame, MuZeroConfig
 from mu_zero_smt.models import FTCNetwork
+
+from .abstract_game import AbstractGame, MuZeroConfig
 
 logging.basicConfig(
     filename="information.log",
@@ -130,7 +131,9 @@ class Game(AbstractGame):
             pb_c_base=19652,
             pb_c_init=1.25,
             ### Network
-            conversion_fn=lambda gh, _: gh.observation_history[-1], # All processing happens in network
+            conversion_fn=lambda gh, _: gh.observation_history[
+                -1
+            ],  # All processing happens in network
             network=FTCNetwork,
             support_size=10,  # Value and reward are scaled (with almost sqrt) and encoded on a vector with a range of -support_size to support_size. Choose it so that support_size <= sqrt(max(abs(discounted reward)))
             # Fully Connected Network

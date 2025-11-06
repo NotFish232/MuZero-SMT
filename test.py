@@ -5,7 +5,6 @@ import torch as T
 from tqdm import tqdm  # type: ignore
 
 from mu_zero_smt.games.smt import Game as SMTGame
-from mu_zero_smt.models import MuZeroNetwork
 from mu_zero_smt.self_play import MCTS, GameHistory, SelfPlay
 
 CHECKPOINT = "results/smt/2025-11-01--22-29-26/model.checkpoint"

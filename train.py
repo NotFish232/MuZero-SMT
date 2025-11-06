@@ -1,4 +1,3 @@
-import copy
 import importlib
 import math
 import pathlib
@@ -15,7 +14,7 @@ import mu_zero_smt.replay_buffer as replay_buffer
 import mu_zero_smt.self_play as self_play
 import mu_zero_smt.shared_storage as shared_storage
 import mu_zero_smt.trainer as trainer
-from mu_zero_smt.models import MuZeroNetwork, dict_to_cpu
+from mu_zero_smt.models import dict_to_cpu
 from mu_zero_smt.self_play import GameHistory
 
 
@@ -52,7 +51,6 @@ class MuZero:
                 f'{game_name} is not a supported game name, try "cartpole" or refer to the documentation for adding a new game.'
             )
             raise err
-
 
         # Fix random generator seed
         numpy.random.seed(self.config.seed)

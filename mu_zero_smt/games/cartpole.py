@@ -6,8 +6,9 @@ import numpy
 import torch
 from typing_extensions import Self, override
 
-from .abstract_game import AbstractGame, MuZeroConfig
 from mu_zero_smt.models import FTCNetwork
+
+from .abstract_game import AbstractGame, MuZeroConfig
 
 
 def visit_softmax_temperature_fn(self: MuZeroConfig, trained_steps: int) -> float:

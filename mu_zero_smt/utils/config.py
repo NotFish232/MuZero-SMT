@@ -1,15 +1,15 @@
 from dataclasses import dataclass
-
-from typing_extensions import Callable, Type, Self, Any
-
 from pathlib import Path
 
-import mu_zero_smt
+from typing_extensions import Any, Callable, Self, Type
 
+import mu_zero_smt
 
 """
 A data class holding the config for MuZero
 """
+
+
 @dataclass
 class MuZeroConfig:
     # More information is available here: https://github.com/werner-duvaud/muzero-general/wiki/Hyperparameter-Optimization
@@ -43,8 +43,10 @@ class MuZeroConfig:
     pb_c_init: float
 
     ### Network
-    conversion_fn: Callable[["mu_zero_smt.self_play.GameHistory", "MuZeroConfig"], Any] | None # Converts the result of the observation into what is actually fed into the model
-    network: Type["mu_zero_smt.models.MuZeroNetwork"] # Which network is used
+    conversion_fn: (
+        Callable[["mu_zero_smt.self_play.GameHistory", "MuZeroConfig"], Any] | None
+    )  # Converts the result of the observation into what is actually fed into the model
+    network: Type["mu_zero_smt.models.MuZeroNetwork"]  # Which network is used
     support_size: int  # Value and reward are scaled (with almost sqrt) and encoded on a vector with a range of -support_size to support_size. Choose it so that support_size <= sqrt(max(abs(discounted reward)))
     # Fully Connected Network
     encoding_size: int

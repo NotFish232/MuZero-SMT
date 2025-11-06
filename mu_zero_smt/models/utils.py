@@ -2,6 +2,7 @@ import torch as T
 from torch import nn
 from typing_extensions import Any, Type
 
+
 def dict_to_cpu(dictionary: dict[str, Any]) -> dict[str, Any]:
     cpu_dict: dict[str, Any] = {}
     for key, value in dictionary.items():
@@ -12,7 +13,6 @@ def dict_to_cpu(dictionary: dict[str, Any]) -> dict[str, Any]:
         else:
             cpu_dict[key] = value
     return cpu_dict
-
 
 
 def support_to_scalar(
@@ -93,7 +93,6 @@ def scalar_to_support(x: T.Tensor, support_size: int, eps: float = 1e-3) -> T.Te
     return logits
 
 
-
 def mlp(
     input_size: int,
     layer_sizes: list[int],
@@ -123,5 +122,3 @@ def mlp(
         layers += [nn.Linear(sizes[i], sizes[i + 1]), act()]
 
     return nn.Sequential(*layers)
-
-

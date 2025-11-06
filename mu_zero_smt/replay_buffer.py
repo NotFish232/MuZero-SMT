@@ -5,7 +5,7 @@ import numpy
 import ray
 import torch
 
-from mu_zero_smt.models import MuZeroNetwork, support_to_scalar
+from mu_zero_smt.models import support_to_scalar
 
 
 @ray.remote

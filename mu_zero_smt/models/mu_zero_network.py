@@ -1,11 +1,10 @@
+from abc import ABC, abstractmethod
+
 import torch as T
 from torch import nn
 from typing_extensions import Self
 
 from mu_zero_smt.utils.config import MuZeroConfig
-
-from abc import ABC, abstractmethod
-
 
 """
 Base Class for a MuZero Network
