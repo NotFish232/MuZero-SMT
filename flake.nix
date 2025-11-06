@@ -29,6 +29,8 @@
         ];
         venvDir = venv_dir;
         postShellHook = ''
+          export PYTHONDONTWRITEBYTECODE=1
+
           SENTINEL="${venv_dir}/.installed"
           REQUIREMENTS="requirements.txt"
 

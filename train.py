@@ -11,13 +11,12 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from typing_extensions import Any, Self
 
-from games.abstract_game import MuZeroConfig
-import muzero_smt.replay_buffer as replay_buffer
-import muzero_smt.self_play as self_play
-import muzero_smt.shared_storage as shared_storage
-import muzero_smt.trainer as trainer
-from muzero_smt.models import MuZeroNetwork, dict_to_cpu
-from muzero_smt.self_play import GameHistory
+import mu_zero_smt.replay_buffer as replay_buffer
+import mu_zero_smt.self_play as self_play
+import mu_zero_smt.shared_storage as shared_storage
+import mu_zero_smt.trainer as trainer
+from mu_zero_smt.models import MuZeroNetwork, dict_to_cpu
+from mu_zero_smt.self_play import GameHistory
 
 
 class MuZero:
@@ -45,7 +44,7 @@ class MuZero:
     ) -> None:
         # Load the game and the config from the module with the game name
         try:
-            game_module = importlib.import_module("games." + game_name)
+            game_module = importlib.import_module("mu_zero_smt.games." + game_name)
             self.Game = game_module.Game
             self.config = self.Game.get_config()
         except ModuleNotFoundError as err:
@@ -109,7 +108,7 @@ class MuZero:
 
         self.replay_buffer: dict[int, GameHistory] = {}
 
-        model = MuZeroNetwork.from_config(self.config)
+        model = self.config.network.from_config(self.config)
 
         self.checkpoint["weights"] = dict_to_cpu(model.state_dict())
         self.summary = str(model)

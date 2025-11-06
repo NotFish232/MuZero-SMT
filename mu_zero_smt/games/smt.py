@@ -10,7 +10,8 @@ import torch
 import z3  # type: ignore
 from typing_extensions import Self, override
 
-from games.abstract_game import AbstractGame, MuZeroConfig
+from .abstract_game import AbstractGame, MuZeroConfig
+from mu_zero_smt.models import FTCNetwork
 
 logging.basicConfig(
     filename="information.log",
@@ -129,6 +130,8 @@ class Game(AbstractGame):
             pb_c_base=19652,
             pb_c_init=1.25,
             ### Network
+            conversion_fn=lambda gh, _: gh.observation_history[-1], # All processing happens in network
+            network=FTCNetwork,
             support_size=10,  # Value and reward are scaled (with almost sqrt) and encoded on a vector with a range of -support_size to support_size. Choose it so that support_size <= sqrt(max(abs(discounted reward)))
             # Fully Connected Network
             encoding_size=8,
@@ -140,7 +143,7 @@ class Game(AbstractGame):
             fc_value_layers=[16],  # Define the hidden layers in the value network
             fc_policy_layers=[16],  # Define the hidden layers in the policy network
             ### Training
-            results_path=pathlib.Path(__file__).resolve().parents[1]
+            results_path=pathlib.Path(__file__).resolve().parents[2]
             / "results"
             / pathlib.Path(__file__).stem
             / datetime.datetime.now().strftime(

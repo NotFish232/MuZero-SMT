@@ -4,9 +4,9 @@ from time import perf_counter
 import torch as T
 from tqdm import tqdm  # type: ignore
 
-from games.smt import Game as SMTGame
-from muzero_smt.models import MuZeroNetwork
-from muzero_smt.self_play import MCTS, GameHistory, SelfPlay
+from mu_zero_smt.games.smt import Game as SMTGame
+from mu_zero_smt.models import MuZeroNetwork
+from mu_zero_smt.self_play import MCTS, GameHistory, SelfPlay
 
 CHECKPOINT = "results/smt/2025-11-01--22-29-26/model.checkpoint"
 
@@ -19,7 +19,7 @@ def main() -> None:
 
     checkpoint = T.load(CHECKPOINT, weights_only=False)
 
-    model = MuZeroNetwork.from_config(config)
+    model = config.network.from_config(config)
     model.load_state_dict(checkpoint["weights"])
     model.eval()
 

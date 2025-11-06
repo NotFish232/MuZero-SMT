@@ -9,9 +9,10 @@ import torch as T
 from ray.actor import ActorHandle
 from typing_extensions import Any, Self, Type
 
-from games.abstract_game import AbstractGame, MuZeroConfig
-from muzero_smt.models import MuZeroNetwork, support_to_scalar
-from muzero_smt.replay_buffer import ReplayBuffer
+from mu_zero_smt.games.abstract_game import AbstractGame
+from mu_zero_smt.utils.config import MuZeroConfig
+from mu_zero_smt.models import MuZeroNetwork, support_to_scalar
+from mu_zero_smt.replay_buffer import ReplayBuffer
 
 
 @ray.remote
@@ -35,7 +36,7 @@ class SelfPlay:
         T.manual_seed(seed)
 
         # Initialize the network
-        self.model = MuZeroNetwork.from_config(self.config)
+        self.model = self.config.network.from_config(self.config)
         self.model.load_state_dict(initial_checkpoint["weights"])
         self.model.to(T.device("cuda" if self.config.selfplay_on_gpu else "cpu"))
         self.model.eval()
@@ -123,10 +124,14 @@ class SelfPlay:
             while (
                 not done and len(game_history.action_history) <= self.config.max_moves
             ):
-                # Stack the last `self.config.stacked_observations` number of observations
-                stacked_observations = game_history.get_stacked_observations(
-                    -1, self.config.stacked_observations, len(self.config.action_space)
-                )
+                # If conversion function is defined used that to get stacked observations
+                if self.config.conversion_fn is not None:
+                    stacked_observations = self.config.conversion_fn(game_history, self.config)
+                else:
+                    # Stack the last `self.config.stacked_observations` number of observations
+                    stacked_observations = game_history.get_stacked_observations(
+                        -1, self.config.stacked_observations, len(self.config.action_space)
+                    )
 
                 # Choose the next action based on MCTS' visit distributions and a temperature parameter
                 root = MCTS(self.config).run(
@@ -267,8 +272,7 @@ class MCTS:
             parent = search_path[-2]
             value_support, reward_support, policy_logits, hidden_state = (
                 model.recurrent_inference(
-                    parent.hidden_state,
-                    T.tensor([[action]]).to(device),
+                    parent.hidden_state, T.tensor([[action]], device=device)
                 )
             )
 
@@ -467,7 +471,7 @@ class MCTSNode:
 
 class GameHistory:
     """
-    Store only usefull information of a self-play game.
+    Store only useful information of a self-play game.
     """
 
     def __init__(self):
@@ -501,8 +505,8 @@ class GameHistory:
             self.root_values.append(None)
 
     def get_stacked_observations(
-        self, index, num_stacked_observations, action_space_size
-    ):
+        self: Self, index: int, num_stacked_observations: int, action_space_size: int
+    ) -> np.ndarray:
         """
         Generate a new observation with the observation at the index position
         and num_stacked_observations past observations and actions stacked.
@@ -514,7 +518,8 @@ class GameHistory:
         for past_observation_index in reversed(
             range(index - num_stacked_observations, index)
         ):
-            if 0 <= past_observation_index:
+            # Previous observation is the last observation + an array of the previous actions of same size as the observation
+            if past_observation_index >= 0:
                 previous_observation = np.concatenate(
                     (
                         self.observation_history[past_observation_index],

@@ -6,7 +6,8 @@ import numpy
 import torch
 from typing_extensions import Self, override
 
-from games.abstract_game import AbstractGame, MuZeroConfig
+from .abstract_game import AbstractGame, MuZeroConfig
+from mu_zero_smt.models import FTCNetwork
 
 
 def visit_softmax_temperature_fn(self: MuZeroConfig, trained_steps: int) -> float:
@@ -73,6 +74,8 @@ class Game(AbstractGame):
             pb_c_init=1.25
             ### Network
             ,
+            conversion_fn=None,
+            network=FTCNetwork,
             support_size=10  # Value and reward are scaled (with almost sqrt) and encoded on a vector with a range of -support_size to support_size. Choose it so that support_size <= sqrt(max(abs(discounted reward)))
             # Fully Connected Network
             ,
@@ -84,7 +87,7 @@ class Game(AbstractGame):
             fc_policy_layers=[16]  # Define the hidden layers in the policy network
             ### Training
             ,
-            results_path=pathlib.Path(__file__).resolve().parents[1]
+            results_path=pathlib.Path(__file__).resolve().parents[2]
             / "results"
             / pathlib.Path(__file__).stem
             / datetime.datetime.now().strftime(

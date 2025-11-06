@@ -5,8 +5,13 @@ import numpy
 import ray
 import torch
 
-import muzero_smt.models as models
-from muzero_smt.models import MuZeroNetwork, dict_to_cpu
+
+from mu_zero_smt.models import (
+    MuZeroNetwork,
+    dict_to_cpu,
+    scalar_to_support,
+    support_to_scalar,
+)
 
 
 @ray.remote
@@ -24,7 +29,7 @@ class Trainer:
         torch.manual_seed(self.config.seed)
 
         # Initialize the network
-        self.model = MuZeroNetwork.from_config(self.config)
+        self.model = self.config.network.from_config(self.config)
         self.model.load_state_dict(copy.deepcopy(initial_checkpoint["weights"]))
         self.model.to(torch.device("cuda" if self.config.train_on_gpu else "cpu"))
         self.model.train()
@@ -90,7 +95,7 @@ class Trainer:
                     {
                         "weights": copy.deepcopy(dict_to_cpu(self.model.state_dict())),
                         "optimizer_state": copy.deepcopy(
-                            models.dict_to_cpu(self.optimizer.state_dict())
+                            dict_to_cpu(self.optimizer.state_dict())
                         ),
                     }
                 )
@@ -159,10 +164,8 @@ class Trainer:
         # target_policy: batch, num_unroll_steps+1, len(action_space)
         # gradient_scale_batch: batch, num_unroll_steps+1
 
-        target_value = models.scalar_to_support(target_value, self.config.support_size)
-        target_reward = models.scalar_to_support(
-            target_reward, self.config.support_size
-        )
+        target_value = scalar_to_support(target_value, self.config.support_size)
+        target_reward = scalar_to_support(target_reward, self.config.support_size)
         # target_value: batch, num_unroll_steps+1, 2*support_size+1
         # target_reward: batch, num_unroll_steps+1, 2*support_size+1
 
@@ -196,7 +199,7 @@ class Trainer:
         policy_loss += current_policy_loss
         # Compute priorities for the prioritized replay (See paper appendix Training)
         pred_value_scalar = (
-            models.support_to_scalar(value, self.config.support_size)
+            support_to_scalar(value, self.config.support_size)
             .detach()
             .cpu()
             .numpy()
@@ -239,7 +242,7 @@ class Trainer:
 
             # Compute priorities for the prioritized replay (See paper appendix Training)
             pred_value_scalar = (
-                models.support_to_scalar(value, self.config.support_size)
+                support_to_scalar(value, self.config.support_size)
                 .detach()
                 .cpu()
                 .numpy()

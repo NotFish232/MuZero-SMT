@@ -5,8 +5,7 @@ import numpy
 import ray
 import torch
 
-import muzero_smt.models as models
-from muzero_smt.models import MuZeroNetwork
+from mu_zero_smt.models import MuZeroNetwork, support_to_scalar
 
 
 @ray.remote
@@ -309,7 +308,7 @@ class Reanalyse:
         torch.manual_seed(self.config.seed)
 
         # Initialize the network
-        self.model = MuZeroNetwork.from_config(config)
+        self.model = self.config.network.from_config(config)
         self.model.load_state_dict(initial_checkpoint["weights"])
         self.model.to(torch.device("cuda" if self.config.reanalyse_on_gpu else "cpu"))
         self.model.eval()
@@ -351,7 +350,7 @@ class Reanalyse:
                     .float()
                     .to(next(self.model.parameters()).device)
                 )
-                values = models.support_to_scalar(
+                values = support_to_scalar(
                     self.model.initial_inference(observations)[0],
                     self.config.support_size,
                 )
