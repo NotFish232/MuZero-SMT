@@ -11,6 +11,7 @@ from typing_extensions import Any, Self, Type
 from mu_zero_smt.games.abstract_game import AbstractGame
 from mu_zero_smt.models import MuZeroNetwork, support_to_scalar
 from mu_zero_smt.replay_buffer import ReplayBuffer
+from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.utils.config import MuZeroConfig
 
 
@@ -41,8 +42,11 @@ class SelfPlay:
         self.model.eval()
 
     def continuous_self_play(
-        self, shared_storage, replay_buffer: ActorHandle[ReplayBuffer], test_mode=False
-    ):
+        self: Self,
+        shared_storage: ActorHandle[SharedStorage],
+        replay_buffer: ActorHandle[ReplayBuffer],
+        test_mode: bool = False,
+    ) -> None:
         while ray.get(
             shared_storage.get_info.remote("training_step")
         ) < self.config.training_steps and not ray.get(

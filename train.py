@@ -8,14 +8,16 @@ import numpy
 import ray
 import torch
 from torch.utils.tensorboard import SummaryWriter
-from typing_extensions import Any, Self
+from typing_extensions import Any, Self, Type
 
 import mu_zero_smt.replay_buffer as replay_buffer
 import mu_zero_smt.self_play as self_play
 import mu_zero_smt.shared_storage as shared_storage
 import mu_zero_smt.trainer as trainer
+from mu_zero_smt.games.abstract_game import AbstractGame
 from mu_zero_smt.models import dict_to_cpu
 from mu_zero_smt.self_play import GameHistory
+from mu_zero_smt.utils.config import MuZeroConfig
 
 
 class MuZero:
@@ -44,8 +46,8 @@ class MuZero:
         # Load the game and the config from the module with the game name
         try:
             game_module = importlib.import_module("mu_zero_smt.games." + game_name)
-            self.Game = game_module.Game
-            self.config = self.Game.get_config()
+            self.Game: Type[AbstractGame] = game_module.Game
+            self.config: MuZeroConfig = self.Game.get_config()
         except ModuleNotFoundError as err:
             print(
                 f'{game_name} is not a supported game name, try "cartpole" or refer to the documentation for adding a new game.'

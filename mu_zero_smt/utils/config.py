@@ -1,9 +1,11 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from typing_extensions import Any, Callable, Self, Type
+from typing_extensions import TYPE_CHECKING, Any, Callable, Self, Type
 
-import mu_zero_smt
+if TYPE_CHECKING:
+    from mu_zero_smt.models import MuZeroNetwork
+    from mu_zero_smt.self_play import GameHistory
 
 """
 A data class holding the config for MuZero
@@ -44,9 +46,9 @@ class MuZeroConfig:
 
     ### Network
     conversion_fn: (
-        Callable[["mu_zero_smt.self_play.GameHistory", "MuZeroConfig"], Any] | None
+        Callable[["GameHistory", "MuZeroConfig"], Any] | None
     )  # Converts the result of the observation into what is actually fed into the model
-    network: Type["mu_zero_smt.models.MuZeroNetwork"]  # Which network is used
+    network: Type["MuZeroNetwork"]  # Which network is used
     support_size: int  # Value and reward are scaled (with almost sqrt) and encoded on a vector with a range of -support_size to support_size. Choose it so that support_size <= sqrt(max(abs(discounted reward)))
     # Fully Connected Network
     encoding_size: int
@@ -74,9 +76,7 @@ class MuZeroConfig:
     value_loss_weight: float  # Scale the value loss to avoid overfitting of the value function, paper recommends 0.25 (See paper appendix Reanalyze)
     train_on_gpu: bool  # Train on GPU if available
 
-    optimizer: str  # "Adam" or "SGD". Paper uses SGD
     weight_decay: float  # L2 weights regularization
-    momentum: float  # Used only if optimizer is SGD
 
     # Exponential learning rate schedule
     lr_init: float  # Initial learning rate

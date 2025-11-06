@@ -100,11 +100,8 @@ class Game(AbstractGame):
             checkpoint_interval=10,  # Number of training steps before using the model for self-playing
             value_loss_weight=1,  # Scale the value loss to avoid overfitting of the value function, paper recommends 0.25 (See paper appendix Reanalyze)
             train_on_gpu=torch.cuda.is_available(),  # Train on GPU if available
-            optimizer="Adam",  # "Adam" or "SGD". Paper uses SGD
             weight_decay=1e-4,  # L2 weights regularization
-            momentum=0.9  # Used only if optimizer is SGD
             # Exponential learning rate schedule
-            ,
             lr_init=0.02,  # Initial learning rate
             lr_decay_rate=0.8,  # Set it to 1 to use a constant learning rate
             lr_decay_steps=1000

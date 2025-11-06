@@ -3,13 +3,19 @@ import time
 
 import numpy
 import ray
-import torch
+import torch as T
+from ray.actor import ActorHandle
+from torch import optim
+from typing_extensions import Any, Self
 
 from mu_zero_smt.models import (
     dict_to_cpu,
     scalar_to_support,
     support_to_scalar,
 )
+from mu_zero_smt.replay_buffer import ReplayBuffer
+from mu_zero_smt.shared_storage import SharedStorage
+from mu_zero_smt.utils.config import MuZeroConfig
 
 
 @ray.remote
@@ -19,17 +25,19 @@ class Trainer:
     in the shared storage.
     """
 
-    def __init__(self, initial_checkpoint, config):
+    def __init__(
+        self: Self, initial_checkpoint: dict[str, Any], config: MuZeroConfig
+    ) -> None:
         self.config = config
 
         # Fix random generator seed
         numpy.random.seed(self.config.seed)
-        torch.manual_seed(self.config.seed)
+        T.manual_seed(self.config.seed)
 
         # Initialize the network
         self.model = self.config.network.from_config(self.config)
         self.model.load_state_dict(copy.deepcopy(initial_checkpoint["weights"]))
-        self.model.to(torch.device("cuda" if self.config.train_on_gpu else "cpu"))
+        self.model.to(T.device("cuda" if self.config.train_on_gpu else "cpu"))
         self.model.train()
 
         self.training_step = initial_checkpoint["training_step"]
@@ -38,23 +46,11 @@ class Trainer:
             print("You are not training on GPU.\n")
 
         # Initialize the optimizer
-        if self.config.optimizer == "SGD":
-            self.optimizer = torch.optim.SGD(
-                self.model.parameters(),
-                lr=self.config.lr_init,
-                momentum=self.config.momentum,
-                weight_decay=self.config.weight_decay,
-            )
-        elif self.config.optimizer == "Adam":
-            self.optimizer = torch.optim.Adam(
-                self.model.parameters(),
-                lr=self.config.lr_init,
-                weight_decay=self.config.weight_decay,
-            )
-        else:
-            raise NotImplementedError(
-                f"{self.config.optimizer} is not implemented. You can change the optimizer manually in trainer.py."
-            )
+        self.optimizer = optim.Adam(
+            self.model.parameters(),
+            lr=self.config.lr_init,
+            weight_decay=self.config.weight_decay,
+        )
 
         if initial_checkpoint["optimizer_state"] is not None:
             print("Loading optimizer...\n")
@@ -62,7 +58,11 @@ class Trainer:
                 copy.deepcopy(initial_checkpoint["optimizer_state"])
             )
 
-    def continuous_update_weights(self, replay_buffer, shared_storage):
+    def continuous_update_weights(
+        self: Self,
+        replay_buffer: ActorHandle[ReplayBuffer],
+        shared_storage: ActorHandle[SharedStorage],
+    ) -> None:
         # Wait for the replay buffer to be filled
         while ray.get(shared_storage.get_info.remote("num_played_games")) < 1:
             time.sleep(0.1)
@@ -146,15 +146,13 @@ class Trainer:
 
         device = next(self.model.parameters()).device
         if self.config.PER:
-            weight_batch = torch.tensor(weight_batch.copy()).float().to(device)
-        observation_batch = (
-            torch.tensor(numpy.array(observation_batch)).float().to(device)
-        )
-        action_batch = torch.tensor(action_batch).long().to(device).unsqueeze(-1)
-        target_value = torch.tensor(target_value).float().to(device)
-        target_reward = torch.tensor(target_reward).float().to(device)
-        target_policy = torch.tensor(target_policy).float().to(device)
-        gradient_scale_batch = torch.tensor(gradient_scale_batch).float().to(device)
+            weight_batch = T.tensor(weight_batch.copy()).float().to(device)
+        observation_batch = T.tensor(numpy.array(observation_batch)).float().to(device)
+        action_batch = T.tensor(action_batch).long().to(device).unsqueeze(-1)
+        target_value = T.tensor(target_value).float().to(device)
+        target_reward = T.tensor(target_reward).float().to(device)
+        target_policy = T.tensor(target_policy).float().to(device)
+        gradient_scale_batch = T.tensor(gradient_scale_batch).float().to(device)
         # observation_batch: batch, channels, height, width
         # action_batch: batch, num_unroll_steps+1, 1 (unsqueeze)
         # target_value: batch, num_unroll_steps+1
@@ -294,9 +292,7 @@ class Trainer:
         target_policy,
     ):
         # Cross-entropy seems to have a better convergence than MSE
-        value_loss = (-target_value * torch.nn.LogSoftmax(dim=1)(value)).sum(1)
-        reward_loss = (-target_reward * torch.nn.LogSoftmax(dim=1)(reward)).sum(1)
-        policy_loss = (-target_policy * torch.nn.LogSoftmax(dim=1)(policy_logits)).sum(
-            1
-        )
+        value_loss = (-target_value * T.nn.LogSoftmax(dim=1)(value)).sum(1)
+        reward_loss = (-target_reward * T.nn.LogSoftmax(dim=1)(reward)).sum(1)
+        policy_loss = (-target_policy * T.nn.LogSoftmax(dim=1)(policy_logits)).sum(1)
         return value_loss, reward_loss, policy_loss
