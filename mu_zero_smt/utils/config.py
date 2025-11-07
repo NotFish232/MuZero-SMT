@@ -89,8 +89,7 @@ class MuZeroConfig:
     num_unroll_steps: int  # Number of game moves to keep for every batch element
 
     td_steps: int  # Number of steps in the future to take into account for calculating the target value
-    PER: bool  # Prioritized Replay (See paper appendix Training), select in priority the elements in the replay buffer which are unexpected for the network
-    PER_alpha: float  # How much prioritization is used, 0 corresponding to the uniform case, paper suggests 1
+    priority_alpha: float  # How much prioritization is used, 0 corresponding to the uniform case, paper suggests 1
 
     # Reanalyze (See paper appendix Reanalyse)
     use_last_model_value: bool  # Use the last model to provide a fresher, stable n-step value (See paper appendix Reanalyze)

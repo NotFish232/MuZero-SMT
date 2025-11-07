@@ -167,8 +167,7 @@ class Game(AbstractGame):
             replay_buffer_size=5000,  # Number of self-play games to keep in the replay buffer
             num_unroll_steps=7,  # Number of game moves to keep for every batch element
             td_steps=7,  # Number of steps in the future to take into account for calculating the target value
-            PER=True,  # Prioritized Replay (See paper appendix Training), select in priority the elements in the replay buffer which are unexpected for the network
-            PER_alpha=0.5,  # How much prioritization is used, 0 corresponding to the uniform case, paper suggests 1
+            priority_alpha=0.5,  # How much prioritization is used, 0 corresponding to the uniform case, paper suggests 1
             # Reanalyze (See paper appendix Reanalyse)
             use_last_model_value=True,  # Use the last model to provide a fresher, stable n-step value (See paper appendix Reanalyze)
             reanalyse_on_gpu=False,

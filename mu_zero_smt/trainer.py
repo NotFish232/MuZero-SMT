@@ -67,13 +67,12 @@ class Trainer:
         while ray.get(shared_storage.get_info.remote("num_played_games")) < 1:
             time.sleep(0.1)
 
-        next_batch = replay_buffer.get_batch.remote()
         # Training loop
         while self.training_step < self.config.training_steps and not ray.get(
             shared_storage.get_info.remote("terminate")
         ):
-            index_batch, batch = ray.get(next_batch)
-            next_batch = replay_buffer.get_batch.remote()
+            index_batch, batch = ray.get(replay_buffer.get_batch.remote())
+
             self.update_lr()
             (
                 priorities,
@@ -83,9 +82,8 @@ class Trainer:
                 policy_loss,
             ) = self.update_weights(batch)
 
-            if self.config.PER:
-                # Save new priorities in the replay buffer (See https://arxiv.org/abs/1803.00933)
-                replay_buffer.update_priorities.remote(priorities, index_batch)
+            # Save new priorities in the replay buffer (See https://arxiv.org/abs/1803.00933)
+            replay_buffer.update_priorities.remote(priorities, index_batch)
 
             # Save to the shared storage
             if self.training_step % self.config.checkpoint_interval == 0:
@@ -145,8 +143,8 @@ class Trainer:
         priorities = numpy.zeros_like(target_value_scalar)
 
         device = next(self.model.parameters()).device
-        if self.config.PER:
-            weight_batch = T.tensor(weight_batch.copy()).float().to(device)
+
+        weight_batch = T.tensor(weight_batch.copy()).float().to(device)
         observation_batch = T.tensor(numpy.array(observation_batch)).float().to(device)
         action_batch = T.tensor(action_batch).long().to(device).unsqueeze(-1)
         target_value = T.tensor(target_value).float().to(device)
@@ -203,7 +201,7 @@ class Trainer:
         )
         priorities[:, 0] = (
             numpy.abs(pred_value_scalar - target_value_scalar[:, 0])
-            ** self.config.PER_alpha
+            ** self.config.priority_alpha
         )
 
         for i in range(1, len(predictions)):
@@ -246,14 +244,14 @@ class Trainer:
             )
             priorities[:, i] = (
                 numpy.abs(pred_value_scalar - target_value_scalar[:, i])
-                ** self.config.PER_alpha
+                ** self.config.priority_alpha
             )
 
         # Scale the value loss, paper recommends by 0.25 (See paper appendix Reanalyze)
         loss = value_loss * self.config.value_loss_weight + reward_loss + policy_loss
-        if self.config.PER:
-            # Correct PER bias by using importance-sampling (IS) weights
-            loss *= weight_batch
+
+        # Correct PER bias by using importance-sampling (IS) weights
+        loss *= weight_batch
         # Mean over batch dimension (pseudocode do a sum)
         loss = loss.mean()
 
