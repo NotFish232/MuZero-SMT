@@ -17,6 +17,8 @@ from mu_zero_smt.replay_buffer import ReplayBuffer
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.utils.config import MuZeroConfig
 
+from torch.nn import functional as F
+
 
 @ray.remote
 class Trainer:
@@ -282,15 +284,16 @@ class Trainer:
 
     @staticmethod
     def loss_function(
-        value,
-        reward,
-        policy_logits,
-        target_value,
-        target_reward,
-        target_policy,
-    ):
+        value: T.Tensor,
+        reward: T.Tensor,
+        policy_logits: T.Tensor,
+        target_value: T.Tensor,
+        target_reward: T.Tensor,
+        target_policy: T.Tensor,
+    ) -> tuple[T.Tensor, T.Tensor, T.Tensor]:
         # Cross-entropy seems to have a better convergence than MSE
-        value_loss = (-target_value * T.nn.LogSoftmax(dim=1)(value)).sum(1)
-        reward_loss = (-target_reward * T.nn.LogSoftmax(dim=1)(reward)).sum(1)
-        policy_loss = (-target_policy * T.nn.LogSoftmax(dim=1)(policy_logits)).sum(1)
+        value_loss = (-target_value * F.log_softmax(value, dim=1)).sum(1)
+        reward_loss = (-target_reward * F.log_softmax(reward, dim=1)).sum(1)
+        policy_loss = (-target_policy * F.log_softmax(policy_logits, dim=1)).sum(1)
+
         return value_loss, reward_loss, policy_loss

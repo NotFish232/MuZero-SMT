@@ -492,7 +492,9 @@ class GameHistory:
         self.priorities = None
         self.game_priority = None
 
-    def store_search_statistics(self, root, action_space):
+    def store_search_statistics(
+        self: Self, root: MCTSNode | None, action_space: list[int]
+    ) -> None:
         # Turn visit count from root into a policy
         if root is not None:
             sum_visits = sum(child.visit_count for child in root.children.values())
