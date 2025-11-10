@@ -55,9 +55,8 @@ class Game(AbstractGame):
                 1,
                 4,
             ),  # Dimensions of the game observation, must be 3D (channel, height, width). For a 1D array, please reshape it to (1, 1, length of array)
-            action_space=list(
-                range(2)
-            ),  # Fixed list of all possible actions. You should only edit the length
+            action_space=2,  # Fixed list of all possible actions. You should only edit the length
+            num_continuous_params=0,
             stacked_observations=0  # Number of previous observations and previous actions to add to the current observation
             ### Self-Play
             ,
@@ -65,6 +64,7 @@ class Game(AbstractGame):
             selfplay_on_gpu=False,
             max_moves=EPISODE_LENGTH,  # Maximum number of moves if game is not finished before
             num_simulations=50,  # Number of future moves self-simulated
+            num_continuous_samples=0,
             discount=0.997,  # Chronological discount of the reward
             # Root prior exploration noise
             root_dirichlet_alpha=0.25,
@@ -135,19 +135,6 @@ class Game(AbstractGame):
         """
         observation, reward, terminated, truncated, _ = self.env.step(action)
         return numpy.array([[observation]]), reward, terminated or truncated
-
-    def legal_actions(self):
-        """
-        Should return the legal actions at each turn, if it is not available, it can return
-        the whole action space. At each turn, the game have to be able to handle one of returned actions.
-
-        For complex game where calculating legal moves is too long, the idea is to define the legal actions
-        equal to the action space but to return a negative reward if the action is illegal.
-
-        Returns:
-            An array of integers, subset of the action space.
-        """
-        return list(range(2))
 
     def reset(self):
         """

@@ -58,21 +58,17 @@ class ReplayBuffer:
             shared_storage (ActorHandle[SharedStorage] | None, optional): SharedStorage to save stats to. Defaults to None.
         """
 
-        if game_history.priorities is not None:
-            # Avoid read only array when loading replay buffer from disk
-            game_history.priorities = np.copy(game_history.priorities)
-        else:
-            # Initial priorities for the prioritized replay (See paper appendix Training)
-            priorities = []
-            for i, root_value in enumerate(game_history.root_values):
-                priority = (
-                    np.abs(root_value - self.compute_target_value(game_history, i))
-                    ** self.config.priority_alpha
-                )
-                priorities.append(priority)
+        # Initial priorities for the prioritized replay (See paper appendix Training)
+        priorities = []
+        for i, root_value in enumerate(game_history.root_values):
+            priority = (
+                np.abs(root_value - self.compute_target_value(game_history, i))
+                ** self.config.priority_alpha
+            )
+            priorities.append(priority)
 
-            game_history.priorities = np.array(priorities, dtype=np.float32)
-            game_history.game_priority = np.max(game_history.priorities)
+        game_history.priorities = np.array(priorities, dtype=np.float32)
+        game_history.game_priority = np.max(game_history.priorities)
 
         # Add game to buffer and update stats
         self.buffer[self.num_played_games] = game_history
@@ -132,7 +128,7 @@ class ReplayBuffer:
                 game_history.get_stacked_observations(
                     game_pos,
                     self.config.stacked_observations,
-                    len(self.config.action_space),
+                    self.config.action_space,
                 )
             )
             action_batch.append(actions)
@@ -231,8 +227,6 @@ class ReplayBuffer:
     ) -> None:
         # The element could have been removed since its selection and update
         if next(iter(self.buffer.keys())) <= game_id:
-            # Avoid read only array when loading replay buffer from disk
-            game_history.priorities = np.copy(game_history.priorities)
             self.buffer[game_id] = game_history
 
     def update_priorities(

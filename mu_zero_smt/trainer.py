@@ -6,6 +6,7 @@ import ray
 import torch as T
 from ray.actor import ActorHandle
 from torch import optim
+from torch.nn import functional as F
 from typing_extensions import Any, Self
 
 from mu_zero_smt.models import (
@@ -16,8 +17,6 @@ from mu_zero_smt.models import (
 from mu_zero_smt.replay_buffer import ReplayBuffer
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.utils.config import MuZeroConfig
-
-from torch.nn import functional as F
 
 
 @ray.remote

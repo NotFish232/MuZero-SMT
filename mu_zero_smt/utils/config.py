@@ -25,9 +25,8 @@ class MuZeroConfig:
     observation_shape: tuple[
         int, int, int
     ]  # Dimensions of the game observation, must be 3D (channel, height, width). For a 1D array, please reshape it to (1, 1, length of array)
-    action_space: list[
-        int
-    ]  # Fixed list of all possible actions. You should only edit the length
+    action_space: int
+    num_continuous_params: int  # Number of continous parameters for the model to output
     stacked_observations: int  # Number of previous observations and previous actions to add to the current observation
 
     ### Self-Play
@@ -35,6 +34,9 @@ class MuZeroConfig:
     selfplay_on_gpu: bool
     max_moves: int  # Maximum number of moves if game is not finished before
     num_simulations: int  # Number of future moves self-simulated
+    num_continuous_samples: (
+        int  # Number of samples to make of the continuous params during sampling
+    )
     discount: float  # Chronological discount of the reward
     # Root prior exploration noise
     root_dirichlet_alpha: float

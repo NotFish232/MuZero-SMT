@@ -9,14 +9,15 @@ from .mu_zero_network import MuZeroNetwork
 from .utils import mlp
 
 
-class FTCNetwork(MuZeroNetwork):
+class SMTNetwork(MuZeroNetwork):
     @override
     @staticmethod
     def from_config(config: MuZeroConfig) -> MuZeroNetwork:
-        return FTCNetwork(
+        return SMTNetwork(
             config.observation_shape,
             config.stacked_observations,
             config.action_space,
+            config.num_continuous_params,
             config.encoding_size,
             config.fc_reward_layers,
             config.fc_value_layers,
@@ -31,6 +32,7 @@ class FTCNetwork(MuZeroNetwork):
         observation_shape: tuple[int, ...],
         stacked_observations: int,
         action_space_size: int,
+        continuous_action_size: int,
         encoded_state_size: int,
         fc_reward_layers: list[int],
         fc_value_layers: list[int],
@@ -42,6 +44,8 @@ class FTCNetwork(MuZeroNetwork):
         super().__init__()
 
         self.action_space_size = action_space_size
+        self.continuous_action_size = continuous_action_size
+
         self.encoded_state_size = encoded_state_size
 
         # Size of entire support with a support for values in range -[support_size, support_size]
@@ -61,7 +65,9 @@ class FTCNetwork(MuZeroNetwork):
         # Dynamics state transition network
         # Input is the encoded space + an action
         self.dynamics_state_network = mlp(
-            self.encoded_state_size + self.action_space_size,
+            self.encoded_state_size
+            + self.action_space_size
+            + 2 * self.continuous_action_size,
             fc_dynamics_layers,
             self.encoded_state_size,
         )
@@ -77,7 +83,9 @@ class FTCNetwork(MuZeroNetwork):
         # Input is the encoded space
         # Output is logits over the action space
         self.prediction_policy_network = mlp(
-            self.encoded_state_size, fc_policy_layers, self.action_space_size
+            self.encoded_state_size,
+            fc_policy_layers,
+            self.action_space_size + 2 * self.continuous_action_size,
         )
 
         # Prediction value network
@@ -95,12 +103,13 @@ class FTCNetwork(MuZeroNetwork):
             encoded_state (torch.Tensor): The hidden state representation of the current state
 
         Returns:
-            tuple[torch.Tensor, torch.Tensor]: A tuple of the policy logits and the value tensor
+            tuple[T.Tensor, T.Tensor]: A tuple of the policy logits and the value tensor
         """
 
         # encoded_state: (batch size, encoded state size)
 
         policy_logits = self.prediction_policy_network(encoded_state)
+
         value = self.prediction_value_network(encoded_state)
 
         # policy_logits: (batch size, action space size)

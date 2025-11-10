@@ -137,14 +137,13 @@ class SelfPlay:
                     stacked_observations = game_history.get_stacked_observations(
                         -1,
                         self.config.stacked_observations,
-                        len(self.config.action_space),
+                        self.config.action_space,
                     )
 
                 # Choose the next action based on MCTS' visit distributions and a temperature parameter
                 root = MCTS(self.config).run(
                     self.model,
                     stacked_observations,
-                    self.game.legal_actions(),
                     True,
                 )
                 action = self.select_action(root, temperature)
@@ -213,7 +212,6 @@ class MCTS:
         self: Self,
         model: MuZeroNetwork,
         raw_observation: np.ndarray,
-        legal_actions: list[int],
         add_exploration_noise: bool,
     ) -> "MCTSNode":
         """
@@ -253,8 +251,9 @@ class MCTS:
         root.expand(
             hidden_state,
             reward,
-            legal_actions,
             policy_logits,
+            self.config.action_space,
+            self.config.num_continuous_params,
         )
 
         # Add dirichlet exploration noise to root to make children selection non-deterministic
@@ -291,8 +290,9 @@ class MCTS:
             node.expand(
                 hidden_state,
                 reward,
-                self.config.action_space,
                 policy_logits,
+                self.config.action_space,
+                self.config.num_continuous_params,
             )
 
             # Propagate up teh search path with the value received
@@ -431,8 +431,9 @@ class MCTSNode:
         self: Self,
         hidden_state: T.Tensor,
         reward: float,
-        action_space: list[int],
         policy_logits: T.Tensor,
+        action_space: int,
+        num_continuous_samples: int,
     ) -> None:
         """
         We expand a node using the value, reward and policy prediction obtained from the
@@ -449,10 +450,18 @@ class MCTSNode:
         self.reward = reward
 
         # Convert logits to values through softmax and mask out actions not in action space
-        policy_values = T.softmax(policy_logits[0, action_space], dim=0).tolist()
+        policy_values = T.softmax(policy_logits[0, :action_space], dim=0).tolist()
+
+        continuous_params = policy_logits[0, action_space:].reshape(-1, 2)
+
+        np.random.normal(
+            loc=continuous_params[:, 0],
+            scale=continuous_params[:, 1],
+            size=(num_continuous_samples, continuous_params.shape[0]),
+        )
 
         # Initialize children with the probability predicted by the policy
-        for action, policy_prob in zip(action_space, policy_values):
+        for action, policy_prob in zip(range(action_space), policy_values):
             self.children[action] = MCTSNode(policy_prob)
 
     def add_exploration_noise(
@@ -481,19 +490,20 @@ class GameHistory:
     Store only useful information of a self-play game.
     """
 
-    def __init__(self):
-        self.observation_history = []
-        self.action_history = []
-        self.reward_history = []
-        self.child_visits = []
-        self.root_values = []
-        self.reanalysed_predicted_root_values = None
+    def __init__(self: Self) -> None:
+        self.observation_history: list[np.ndarray] = []
+        self.action_history: list[int] = []
+        self.reward_history: list[float] = []
+        self.child_visits: list[list[float]] = []
+        self.root_values: list[float] = []
+
         # For PER
-        self.priorities = None
-        self.game_priority = None
+        self.priorities = np.empty(0)
+        self.game_priority = 0.0
+        self.reanalysed_predicted_root_values = np.empty(0)
 
     def store_search_statistics(
-        self: Self, root: MCTSNode | None, action_space: list[int]
+        self: Self, root: MCTSNode | None, action_space: int
     ) -> None:
         # Turn visit count from root into a policy
         if root is not None:
@@ -505,16 +515,16 @@ class GameHistory:
                         if a in root.children
                         else 0
                     )
-                    for a in action_space
+                    for a in range(action_space)
                 ]
             )
 
             self.root_values.append(root.value())
         else:
-            self.root_values.append(None)
+            self.root_values.append(float("-inf"))
 
     def get_stacked_observations(
-        self: Self, index: int, num_stacked_observations: int, action_space_size: int
+        self: Self, index: int, num_stacked_observations: int, action_space: int
     ) -> np.ndarray:
         """
         Generate a new observation with the observation at the index position
@@ -535,7 +545,7 @@ class GameHistory:
                         [
                             np.ones_like(stacked_observations[0])
                             * self.action_history[past_observation_index + 1]
-                            / action_space_size
+                            / action_space
                         ],
                     )
                 )

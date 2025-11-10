@@ -35,19 +35,6 @@ class AbstractGame(ABC):
         """
 
     @abstractmethod
-    def legal_actions(self: Self) -> list[int]:
-        """
-        Should return the legal actions at each turn, if it is not available, it can return
-        the whole action space. At each turn, the game have to be able to handle one of returned actions.
-
-        For complex game where calculating legal moves is too long, the idea is to define the legal actions
-        equal to the action space but to return a negative reward if the action is illegal.
-
-        Returns:
-            An array of integers, subset of the action space.
-        """
-
-    @abstractmethod
     def reset(self: Self) -> np.ndarray:
         """
         Reset the game for a new game.

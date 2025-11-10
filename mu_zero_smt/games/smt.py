@@ -10,7 +10,7 @@ import torch
 import z3  # type: ignore
 from typing_extensions import Self, override
 
-from mu_zero_smt.models import FTCNetwork
+from mu_zero_smt.models.smt_network import SMTNetwork
 
 from .abstract_game import AbstractGame, MuZeroConfig
 
@@ -114,15 +114,17 @@ class Game(AbstractGame):
                 1,
                 len(PROBES) + 1,
             ),  # Dimensions of the game observation, must be 3D (channel, height, width). For a 1D array, please reshape it to (1, 1, length of array)
-            action_space=list(
-                range(len(TACTICS))
+            action_space=len(
+                TACTICS
             ),  # Fixed list of all possible actions. You should only edit the length
+            num_continuous_params=1,
             stacked_observations=0,  # Number of previous observations and previous actions to add to the current observation
             ### Self-Play
             num_workers=5,  # Number of simultaneous threads/workers self-playing to feed the replay buffer
             selfplay_on_gpu=False,
             max_moves=MAX_NUM_TACTICS,  # Maximum number of moves if game is not finished before
             num_simulations=10,  # Number of future moves self-simulated
+            num_continuous_samples=10,
             discount=1,  # Chronological discount of the reward
             # Root prior exploration noise
             root_dirichlet_alpha=0.25,
@@ -134,7 +136,7 @@ class Game(AbstractGame):
             conversion_fn=lambda gh, _: gh.observation_history[
                 -1
             ],  # All processing happens in network
-            network=FTCNetwork,
+            network=SMTNetwork,
             support_size=10,  # Value and reward are scaled (with almost sqrt) and encoded on a vector with a range of -support_size to support_size. Choose it so that support_size <= sqrt(max(abs(discounted reward)))
             # Fully Connected Network
             encoding_size=8,
@@ -272,19 +274,6 @@ class Game(AbstractGame):
                 )
 
         return self._get_observation(), reward, done
-
-    def legal_actions(self: Self) -> list[int]:
-        """
-        Should return the legal actions at each turn, if it is not available, it can return
-        the whole action space. At each turn, the game have to be able to handle one of returned actions.
-
-        For complex game where calculating legal moves is too long, the idea is to define the legal actions
-        equal to the action space but to return a negative reward if the action is illegal.
-
-        Returns:
-            An array of integers, subset of the action space.
-        """
-        return [*range(len(self.tactics))]
 
     def reset(self: Self) -> np.ndarray:
         """
