@@ -1,11 +1,10 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from typing_extensions import TYPE_CHECKING, Any, Callable, Self, Type
+from typing_extensions import TYPE_CHECKING, Callable, Self, Type
 
 if TYPE_CHECKING:
     from mu_zero_smt.models import MuZeroNetwork
-    from mu_zero_smt.self_play import GameHistory
 
 """
 A data class holding the config for MuZero
@@ -25,9 +24,10 @@ class MuZeroConfig:
     observation_shape: tuple[
         int, int, int
     ]  # Dimensions of the game observation, must be 3D (channel, height, width). For a 1D array, please reshape it to (1, 1, length of array)
-    action_space: list[
-        int
-    ]  # Fixed list of all possible actions. You should only edit the length
+    discrete_action_space: (
+        int  # Fixed list of all possible actions. You should only edit the length
+    )
+    continuous_action_space: int  # Additional actions to consider
     stacked_observations: int  # Number of previous observations and previous actions to add to the current observation
 
     ### Self-Play
@@ -45,9 +45,6 @@ class MuZeroConfig:
     pb_c_init: float
 
     ### Network
-    conversion_fn: (
-        Callable[["GameHistory", "MuZeroConfig"], Any] | None
-    )  # Converts the result of the observation into what is actually fed into the model
     network: Type["MuZeroNetwork"]  # Which network is used
     support_size: int  # Value and reward are scaled (with almost sqrt) and encoded on a vector with a range of -support_size to support_size. Choose it so that support_size <= sqrt(max(abs(discounted reward)))
     # Fully Connected Network
@@ -90,9 +87,6 @@ class MuZeroConfig:
 
     td_steps: int  # Number of steps in the future to take into account for calculating the target value
     priority_alpha: float  # How much prioritization is used, 0 corresponding to the uniform case, paper suggests 1
-
-    # Reanalyze (See paper appendix Reanalyse)
-    reanalyse_on_gpu: bool
 
     ### Adjust the self play / training ratio to avoid over/underfitting
     self_play_delay: float  # Number of seconds to wait after each played game

@@ -55,9 +55,8 @@ class Game(AbstractGame):
                 1,
                 4,
             ),  # Dimensions of the game observation, must be 3D (channel, height, width). For a 1D array, please reshape it to (1, 1, length of array)
-            action_space=list(
-                range(2)
-            ),  # Fixed list of all possible actions. You should only edit the length
+            discrete_action_space=2,  # Fixed list of all possible actions. You should only edit the length
+            continuous_action_space=0,
             stacked_observations=0  # Number of previous observations and previous actions to add to the current observation
             ### Self-Play
             ,
@@ -72,10 +71,8 @@ class Game(AbstractGame):
             # UCB formula
             ,
             pb_c_base=19652,
-            pb_c_init=1.25
+            pb_c_init=1.25,
             ### Network
-            ,
-            conversion_fn=None,
             network=FTCNetwork,
             support_size=10  # Value and reward are scaled (with almost sqrt) and encoded on a vector with a range of -support_size to support_size. Choose it so that support_size <= sqrt(max(abs(discounted reward)))
             # Fully Connected Network
@@ -111,9 +108,6 @@ class Game(AbstractGame):
             num_unroll_steps=10,  # Number of game moves to keep for every batch element
             td_steps=50,  # Number of steps in the future to take into account for calculating the target value
             priority_alpha=0.5  # How much prioritization is used, 0 corresponding to the uniform case, paper suggests 1
-            # Reanalyze (See paper appendix Reanalyse)
-            ,
-            reanalyse_on_gpu=False
             ### Adjust the self play / training ratio to avoid over/underfitting
             ,
             self_play_delay=0,  # Number of seconds to wait after each played game
@@ -134,19 +128,6 @@ class Game(AbstractGame):
         """
         observation, reward, terminated, truncated, _ = self.env.step(action)
         return numpy.array([[observation]]), reward, terminated or truncated
-
-    def legal_actions(self):
-        """
-        Should return the legal actions at each turn, if it is not available, it can return
-        the whole action space. At each turn, the game have to be able to handle one of returned actions.
-
-        For complex game where calculating legal moves is too long, the idea is to define the legal actions
-        equal to the action space but to return a negative reward if the action is illegal.
-
-        Returns:
-            An array of integers, subset of the action space.
-        """
-        return list(range(2))
 
     def reset(self):
         """

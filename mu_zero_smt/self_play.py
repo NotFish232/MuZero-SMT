@@ -125,24 +125,17 @@ class SelfPlay:
             while (
                 not done and len(game_history.action_history) <= self.config.max_moves
             ):
-                # If conversion function is defined used that to get stacked observations
-                if self.config.conversion_fn is not None:
-                    stacked_observations = self.config.conversion_fn(
-                        game_history, self.config
-                    )
-                else:
-                    # Stack the last `self.config.stacked_observations` number of observations
-                    stacked_observations = game_history.get_stacked_observations(
-                        -1,
-                        self.config.stacked_observations,
-                        len(self.config.action_space),
-                    )
+                # Stack the last `self.config.stacked_observations` number of observations
+                stacked_observations = game_history.get_stacked_observations(
+                    -1,
+                    self.config.stacked_observations,
+                    self.config.discrete_action_space,
+                )
 
                 # Choose the next action based on MCTS' visit distributions and a temperature parameter
                 root = MCTS(self.config).run(
                     self.model,
                     stacked_observations,
-                    self.game.legal_actions(),
                     True,
                 )
                 action = self.select_action(root, temperature)
@@ -153,7 +146,9 @@ class SelfPlay:
                     print(f"Played action: {self.game.action_to_string(action)}")
                     self.game.render()
 
-                game_history.store_search_statistics(root, self.config.action_space)
+                game_history.store_search_statistics(
+                    root, self.config.discrete_action_space
+                )
 
                 # Next batch
                 game_history.action_history.append(action)
@@ -211,7 +206,6 @@ class MCTS:
         self: Self,
         model: MuZeroNetwork,
         raw_observation: np.ndarray,
-        legal_actions: list[int],
         add_exploration_noise: bool,
     ) -> "MCTSNode":
         """
@@ -219,7 +213,7 @@ class MCTS:
 
         Args:
             raw_observation (np.ndarray): The observation from the game
-            legal_actions (list[int]): The actions an agent can take in the environment
+            add_exploration_noise (bool): Whether to add Dirichlet noise to the root node
 
         Returns:
             tuple[MCTSNode, dict[str, Any]]: The root node of the MCTS algorithm along with some data
@@ -251,7 +245,7 @@ class MCTS:
         root.expand(
             hidden_state,
             reward,
-            legal_actions,
+            self.config.discrete_action_space,
             policy_logits,
         )
 
@@ -289,7 +283,7 @@ class MCTS:
             node.expand(
                 hidden_state,
                 reward,
-                self.config.action_space,
+                self.config.discrete_action_space,
                 policy_logits,
             )
 
@@ -429,7 +423,7 @@ class MCTSNode:
         self: Self,
         hidden_state: T.Tensor,
         reward: float,
-        action_space: list[int],
+        action_space: int,
         policy_logits: T.Tensor,
     ) -> None:
         """
@@ -439,7 +433,7 @@ class MCTSNode:
         Args:
             hidden_state (torch.Tensor): The tensor encoding of the current state from the representation network
             reward (float): The reward received at this state
-            action_space (list[int]): The available actions at the current state (might not all be legal)
+            action_space (int) The available actions at the current state (might not all be legal)
             policy_logits (torch.Tensor): Logits of the policy for the current state
         """
 
@@ -447,10 +441,10 @@ class MCTSNode:
         self.reward = reward
 
         # Convert logits to values through softmax and mask out actions not in action space
-        policy_values = T.softmax(policy_logits[0, action_space], dim=0).tolist()
+        policy_values = T.softmax(policy_logits[0, :action_space], dim=0).tolist()
 
         # Initialize children with the probability predicted by the policy
-        for action, policy_prob in zip(action_space, policy_values):
+        for action, policy_prob in zip(range(action_space), policy_values):
             self.children[action] = MCTSNode(policy_prob)
 
     def add_exploration_noise(
@@ -491,7 +485,7 @@ class GameHistory:
         self.game_priority = 0.0
 
     def store_search_statistics(
-        self: Self, root: MCTSNode | None, action_space: list[int]
+        self: Self, root: MCTSNode | None, action_space: int
     ) -> None:
         # Turn visit count from root into a policy
         if root is not None:
@@ -503,7 +497,7 @@ class GameHistory:
                         if a in root.children
                         else 0
                     )
-                    for a in action_space
+                    for a in range(action_space)
                 ]
             )
 

@@ -37,21 +37,20 @@ def main() -> None:
 
         while not done:
             stacked_observations = game_history.get_stacked_observations(
-                -1, config.stacked_observations, len(config.action_space)
+                -1, config.stacked_observations, config.discrete_action_space
             )
 
             # Choose the action
             root = MCTS(config).run(
                 model,
                 stacked_observations,
-                game.legal_actions(),
                 True,
             )
             action = SelfPlay.select_action(root, 0)
 
             observation, reward, done = game.step(action)
 
-            game_history.store_search_statistics(root, config.action_space)
+            game_history.store_search_statistics(root, config.discrete_action_space)
 
             # Next batch
             game_history.action_history.append(action)

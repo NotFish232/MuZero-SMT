@@ -9,14 +9,15 @@ from .mu_zero_network import MuZeroNetwork
 from .utils import mlp
 
 
-class FTCNetwork(MuZeroNetwork):
+class SMTNetwork(MuZeroNetwork):
     @override
     @staticmethod
     def from_config(config: MuZeroConfig) -> MuZeroNetwork:
-        return FTCNetwork(
+        return SMTNetwork(
             config.observation_shape,
             config.stacked_observations,
             config.discrete_action_space,
+            config.continuous_action_space,
             config.encoding_size,
             config.fc_reward_layers,
             config.fc_value_layers,
@@ -30,7 +31,8 @@ class FTCNetwork(MuZeroNetwork):
         self: Self,
         observation_shape: tuple[int, ...],
         stacked_observations: int,
-        action_space_size: int,
+        discrete_ction_space_size: int,
+        continuous_action_size: int,
         encoded_state_size: int,
         fc_reward_layers: list[int],
         fc_value_layers: list[int],
@@ -41,7 +43,7 @@ class FTCNetwork(MuZeroNetwork):
     ) -> None:
         super().__init__()
 
-        self.action_space_size = action_space_size
+        self.action_space_size = discrete_ction_space_size
         self.encoded_state_size = encoded_state_size
 
         # Size of entire support with a support for values in range -[support_size, support_size]

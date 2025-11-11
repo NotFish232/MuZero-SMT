@@ -60,18 +60,12 @@ class MuZero:
 
         # Manage GPUs
         if self.config.max_num_gpus == 0 and (
-            self.config.selfplay_on_gpu
-            or self.config.train_on_gpu
-            or self.config.reanalyse_on_gpu
+            self.config.selfplay_on_gpu or self.config.train_on_gpu
         ):
             raise ValueError(
                 "Inconsistent MuZeroConfig: max_num_gpus = 0 but GPU requested by selfplay_on_gpu or train_on_gpu or reanalyse_on_gpu."
             )
-        if (
-            self.config.selfplay_on_gpu
-            or self.config.train_on_gpu
-            or self.config.reanalyse_on_gpu
-        ):
+        if self.config.selfplay_on_gpu or self.config.train_on_gpu:
             total_gpus = (
                 self.config.max_num_gpus
                 if self.config.max_num_gpus is not None
@@ -129,7 +123,6 @@ class MuZero:
                 self.config.train_on_gpu
                 + self.config.num_workers * self.config.selfplay_on_gpu
                 + log_in_tensorboard * self.config.selfplay_on_gpu
-                + self.config.reanalyse_on_gpu
             )
             if 1 < num_gpus_per_worker:
                 num_gpus_per_worker = math.floor(num_gpus_per_worker)
@@ -160,7 +153,7 @@ class MuZero:
             ray.remote(replay_buffer.Reanalyse)
             .options(
                 num_cpus=0,
-                num_gpus=num_gpus_per_worker if self.config.reanalyse_on_gpu else 0,
+                num_gpus=0,
             )
             .remote(self.checkpoint, self.config)
         )

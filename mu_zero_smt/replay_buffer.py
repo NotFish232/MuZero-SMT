@@ -130,7 +130,7 @@ class ReplayBuffer:
                 game_history.get_stacked_observations(
                     game_pos,
                     self.config.stacked_observations,
-                    len(self.config.action_space),
+                    self.config.discrete_action_space,
                 )
             )
             action_batch.append(actions)
@@ -336,7 +336,9 @@ class ReplayBuffer:
                         for _ in range(len(game_history.child_visits[0]))
                     ]
                 )
-                actions.append(np.random.choice(self.config.action_space))
+                actions.append(
+                    np.random.choice(range(self.config.discrete_action_space))
+                )
 
         return target_values, target_rewards, target_policies, actions
 
@@ -347,7 +349,7 @@ class Reanalyse:
     See paper appendix Reanalyse.
     """
 
-    def __init__(self, initial_checkpoint, config):
+    def __init__(self, initial_checkpoint, config: MuZeroConfig) -> None:
         self.config = config
 
         # Fix random generator seed
@@ -357,7 +359,7 @@ class Reanalyse:
         # Initialize the network
         self.model = self.config.network.from_config(config)
         self.model.load_state_dict(initial_checkpoint["weights"])
-        self.model.to(T.device("cuda" if self.config.reanalyse_on_gpu else "cpu"))
+        self.model.to(T.device("cpu"))
         self.model.eval()
 
         self.num_reanalysed_games = initial_checkpoint["num_reanalysed_games"]
@@ -390,7 +392,7 @@ class Reanalyse:
                     game_history.get_stacked_observations(
                         i,
                         self.config.stacked_observations,
-                        len(self.config.action_space),
+                        self.config.discrete_action_space,
                     )
                     for i in range(len(game_history.root_values))
                 ]
