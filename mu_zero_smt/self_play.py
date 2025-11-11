@@ -5,7 +5,7 @@ import time
 import numpy as np
 import ray
 import torch as T
-from ray.actor import ActorHandle
+from ray.actor import ActorProxy
 from typing_extensions import Any, Self, Type
 
 from mu_zero_smt.games.abstract_game import AbstractGame
@@ -15,7 +15,6 @@ from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.utils.config import MuZeroConfig
 
 
-@ray.remote
 class SelfPlay:
     """
     Class which run in a dedicated thread to play games and save them to the replay-buffer.
@@ -41,11 +40,12 @@ class SelfPlay:
         self.model.to(T.device("cuda" if self.config.selfplay_on_gpu else "cpu"))
         self.model.eval()
 
+    @ray.method
     def continuous_self_play(
         self: Self,
-        shared_storage: ActorHandle[SharedStorage],
-        replay_buffer: ActorHandle[ReplayBuffer],
-        test_mode: bool = False,
+        shared_storage: ActorProxy[SharedStorage],
+        replay_buffer: ActorProxy[ReplayBuffer] | None,
+        test_mode: bool,
     ) -> None:
         while ray.get(
             shared_storage.get_info.remote("training_step")
@@ -65,17 +65,15 @@ class SelfPlay:
                     False,
                 )
 
-                replay_buffer.save_game.remote(game_history, shared_storage)
+                if replay_buffer is not None:
+                    replay_buffer.save_game.remote(game_history, shared_storage)
 
             else:
                 # Take the best action (no exploration) in test mode
-                game_history = self.play_game(
-                    0,
-                    False,
-                )
+                game_history = self.play_game(0, False)
 
                 # Save to the shared storage
-                shared_storage.set_info.remote(
+                shared_storage.set_info_all.remote(
                     {
                         "episode_length": len(game_history.action_history) - 1,
                         "total_reward": sum(game_history.reward_history),
@@ -481,16 +479,16 @@ class GameHistory:
     Store only useful information of a self-play game.
     """
 
-    def __init__(self):
-        self.observation_history = []
-        self.action_history = []
-        self.reward_history = []
-        self.child_visits = []
-        self.root_values = []
+    def __init__(self: Self) -> None:
+        self.observation_history: list[np.ndarray] = []
+        self.action_history: list[int] = []
+        self.reward_history: list[float] = []
+        self.child_visits: list[list[float]] = []
+        self.root_values: list[float] = []
         self.reanalysed_predicted_root_values = None
         # For PER
-        self.priorities = None
-        self.game_priority = None
+        self.priorities = np.empty(0)
+        self.game_priority = 0.0
 
     def store_search_statistics(
         self: Self, root: MCTSNode | None, action_space: list[int]
@@ -511,7 +509,7 @@ class GameHistory:
 
             self.root_values.append(root.value())
         else:
-            self.root_values.append(None)
+            self.root_values.append(-1)
 
     def get_stacked_observations(
         self: Self, index: int, num_stacked_observations: int, action_space_size: int

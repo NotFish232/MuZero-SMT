@@ -8,7 +8,6 @@ from typing_extensions import Any, Self
 from mu_zero_smt.utils.config import MuZeroConfig
 
 
-@ray.remote
 class SharedStorage:
     """
     Class which run in a dedicated thread to store the network weights and some information.
@@ -18,6 +17,7 @@ class SharedStorage:
         self.config = config
         self.current_checkpoint = copy.deepcopy(checkpoint)
 
+    @ray.method
     def save_checkpoint(self: Self, path: Path | None = None) -> None:
         if not path:
             path = self.config.results_path / "model.checkpoint"
@@ -27,20 +27,22 @@ class SharedStorage:
     def get_checkpoint(self: Self) -> dict[str, Any]:
         return copy.deepcopy(self.current_checkpoint)
 
-    def get_info(self: Self, keys: str | list[str]) -> Any | dict[str, Any]:
-        if isinstance(keys, str):
-            return self.current_checkpoint[keys]
-        elif isinstance(keys, list):
-            return {key: self.current_checkpoint[key] for key in keys}
-        else:
-            raise TypeError
+    @ray.method
+    def get_info(self: Self, key: str) -> Any:
+        return self.current_checkpoint[key]
 
+    @ray.method
+    def get_info_all(self: Self, keys: list[str]) -> dict[str, Any]:
+        return {key: self.current_checkpoint[key] for key in keys}
+
+    @ray.method
     def set_info(
-        self: Self, keys: str | dict[str, Any], values: Any | None = None
+        self: Self,
+        key: str,
+        value: Any,
     ) -> None:
-        if isinstance(keys, str) and values is not None:
-            self.current_checkpoint[keys] = values
-        elif isinstance(keys, dict):
-            self.current_checkpoint.update(keys)
-        else:
-            raise TypeError
+        self.current_checkpoint[key] = value
+
+    @ray.method
+    def set_info_all(self: Self, key_and_values: dict[str, Any]) -> None:
+        self.current_checkpoint.update(key_and_values)

@@ -4,8 +4,9 @@ import time
 import numpy
 import ray
 import torch as T
-from ray.actor import ActorHandle
+from ray.actor import ActorProxy
 from torch import optim
+from torch.nn import functional as F
 from typing_extensions import Any, Self
 
 from mu_zero_smt.models import (
@@ -17,10 +18,7 @@ from mu_zero_smt.replay_buffer import ReplayBuffer
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.utils.config import MuZeroConfig
 
-from torch.nn import functional as F
 
-
-@ray.remote
 class Trainer:
     """
     Class which run in a dedicated thread to train a neural network and save it
@@ -60,10 +58,11 @@ class Trainer:
                 copy.deepcopy(initial_checkpoint["optimizer_state"])
             )
 
+    @ray.method
     def continuous_update_weights(
         self: Self,
-        replay_buffer: ActorHandle[ReplayBuffer],
-        shared_storage: ActorHandle[SharedStorage],
+        replay_buffer: ActorProxy[ReplayBuffer],
+        shared_storage: ActorProxy[SharedStorage],
     ) -> None:
         # Wait for the replay buffer to be filled
         while ray.get(shared_storage.get_info.remote("num_played_games")) < 1:
@@ -89,7 +88,7 @@ class Trainer:
 
             # Save to the shared storage
             if self.training_step % self.config.checkpoint_interval == 0:
-                shared_storage.set_info.remote(
+                shared_storage.set_info_all.remote(
                     {
                         "weights": copy.deepcopy(dict_to_cpu(self.model.state_dict())),
                         "optimizer_state": copy.deepcopy(
@@ -99,7 +98,7 @@ class Trainer:
                 )
                 if self.config.save_model:
                     shared_storage.save_checkpoint.remote()
-            shared_storage.set_info.remote(
+            shared_storage.set_info_all.remote(
                 {
                     "training_step": self.training_step,
                     "lr": self.optimizer.param_groups[0]["lr"],

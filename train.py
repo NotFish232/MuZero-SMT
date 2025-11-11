@@ -113,15 +113,7 @@ class MuZero:
         self.checkpoint["weights"] = dict_to_cpu(model.state_dict())
         self.summary = str(model)
 
-        # Workers
-        self.self_play_workers = None
-        self.test_worker = None
-        self.training_worker = None
-        self.reanalyse_worker = None
-        self.replay_buffer_worker = None
-        self.shared_storage_worker = None
-
-    def train(self, log_in_tensorboard=True):
+    def train(self: Self, log_in_tensorboard: bool = True) -> None:
         """
         Spawn ray workers and launch the training.
 
@@ -137,7 +129,7 @@ class MuZero:
                 self.config.train_on_gpu
                 + self.config.num_workers * self.config.selfplay_on_gpu
                 + log_in_tensorboard * self.config.selfplay_on_gpu
-                + self.config.use_last_model_value * self.config.reanalyse_on_gpu
+                + self.config.reanalyse_on_gpu
             )
             if 1 < num_gpus_per_worker:
                 num_gpus_per_worker = math.floor(num_gpus_per_worker)
@@ -145,32 +137,41 @@ class MuZero:
             num_gpus_per_worker = 0
 
         # Initialize workers
-        self.training_worker = trainer.Trainer.options(
-            num_cpus=0,
-            num_gpus=num_gpus_per_worker if self.config.train_on_gpu else 0,
-        ).remote(self.checkpoint, self.config)
+        self.training_worker = (
+            ray.remote(trainer.Trainer)
+            .options(
+                num_cpus=0,
+                num_gpus=num_gpus_per_worker if self.config.train_on_gpu else 0,
+            )
+            .remote(self.checkpoint, self.config)
+        )
 
-        self.shared_storage_worker = shared_storage.SharedStorage.remote(
+        self.shared_storage_worker = ray.remote(shared_storage.SharedStorage).remote(
             self.checkpoint,
             self.config,
         )
         self.shared_storage_worker.set_info.remote("terminate", False)
 
-        self.replay_buffer_worker = replay_buffer.ReplayBuffer.remote(
+        self.replay_buffer_worker = ray.remote(replay_buffer.ReplayBuffer).remote(
             self.checkpoint, self.replay_buffer, self.config
         )
 
-        if self.config.use_last_model_value:
-            self.reanalyse_worker = replay_buffer.Reanalyse.options(
+        self.reanalyse_worker = (
+            ray.remote(replay_buffer.Reanalyse)
+            .options(
                 num_cpus=0,
                 num_gpus=num_gpus_per_worker if self.config.reanalyse_on_gpu else 0,
-            ).remote(self.checkpoint, self.config)
+            )
+            .remote(self.checkpoint, self.config)
+        )
 
         self.self_play_workers = [
-            self_play.SelfPlay.options(
+            ray.remote(self_play.SelfPlay)
+            .options(
                 num_cpus=0,
                 num_gpus=num_gpus_per_worker if self.config.selfplay_on_gpu else 0,
-            ).remote(
+            )
+            .remote(
                 self.checkpoint,
                 self.Game,
                 self.config,
@@ -182,36 +183,40 @@ class MuZero:
         # Launch workers
         [
             self_play_worker.continuous_self_play.remote(
-                self.shared_storage_worker, self.replay_buffer_worker
+                self.shared_storage_worker, self.replay_buffer_worker, False
             )
             for self_play_worker in self.self_play_workers
         ]
         self.training_worker.continuous_update_weights.remote(
             self.replay_buffer_worker, self.shared_storage_worker
         )
-        if self.config.use_last_model_value:
-            self.reanalyse_worker.reanalyse.remote(
-                self.replay_buffer_worker, self.shared_storage_worker
-            )
+
+        self.reanalyse_worker.reanalyse.remote(
+            self.replay_buffer_worker, self.shared_storage_worker
+        )
 
         if log_in_tensorboard:
             self.logging_loop(
                 num_gpus_per_worker if self.config.selfplay_on_gpu else 0,
             )
 
-    def logging_loop(self, num_gpus):
+    def logging_loop(self, num_gpus) -> None:
         """
         Keep track of the training performance.
         """
         # Launch the test worker to get performance metrics
-        self.test_worker = self_play.SelfPlay.options(
-            num_cpus=0,
-            num_gpus=num_gpus,
-        ).remote(
-            self.checkpoint,
-            self.Game,
-            self.config,
-            self.config.seed + self.config.num_workers,
+        self.test_worker = (
+            ray.remote(self_play.SelfPlay)
+            .options(
+                num_cpus=0,
+                num_gpus=num_gpus,
+            )
+            .remote(
+                self.checkpoint,
+                self.Game,
+                self.config,
+                self.config.seed + self.config.num_workers,
+            )
         )
         self.test_worker.continuous_self_play.remote(
             self.shared_storage_worker, None, True
@@ -255,10 +260,10 @@ class MuZero:
             "num_played_steps",
             "num_reanalysed_games",
         ]
-        info = ray.get(self.shared_storage_worker.get_info.remote(keys))
+        info = ray.get(self.shared_storage_worker.get_info_all.remote(keys))
         try:
             while info["training_step"] < self.config.training_steps:
-                info = ray.get(self.shared_storage_worker.get_info.remote(keys))
+                info = ray.get(self.shared_storage_worker.get_info_all.remote(keys))
                 writer.add_scalar(
                     "1.Total_reward/1.Total_reward",
                     info["total_reward"],

@@ -92,7 +92,6 @@ class MuZeroConfig:
     priority_alpha: float  # How much prioritization is used, 0 corresponding to the uniform case, paper suggests 1
 
     # Reanalyze (See paper appendix Reanalyse)
-    use_last_model_value: bool  # Use the last model to provide a fresher, stable n-step value (See paper appendix Reanalyze)
     reanalyse_on_gpu: bool
 
     ### Adjust the self play / training ratio to avoid over/underfitting
