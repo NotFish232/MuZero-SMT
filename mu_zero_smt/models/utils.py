@@ -93,6 +93,53 @@ def scalar_to_support(x: T.Tensor, support_size: int, eps: float = 1e-3) -> T.Te
     return logits
 
 
+def sample_continuous_params(
+    policy_logits: T.Tensor, continuous_action_space: int, num_continuous_samples: int
+) -> T.Tensor:
+    """
+    Samples continuous params from the policy logits, where the last 2 * continuous action space values are mean and standard deviations
+
+    Args:
+        policy_logits (T.Tensor): The tensor of policy logits of shape (1, action space)
+        continuous_action_space (int): The size of the continuous action space
+        num_continuous_samples (int): How many samples to make
+
+    Returns:
+        T.Tensor: The values in [0, 1] for each continuous parameter
+    """
+    continuous_distribution = (
+        policy_logits[0, -2 * continuous_action_space :]
+        .detach()
+        .reshape(1, -1, 2)
+        .repeat(num_continuous_samples, 1, 1)
+    )
+
+    # Sample values for continuous parameters based on prediction
+    # Sigmoid it so its between range 0 and 1, where we will then scale
+    continuous_params = T.sigmoid_(
+        T.normal(
+            continuous_distribution[:, :, 0], T.abs(continuous_distribution[:, :, 1])
+        )
+    )
+
+    return continuous_params
+
+
+def one_hot_encode(x: T.Tensor, n: int) -> T.Tensor:
+    """
+    One hot encodes a nx1 vector x
+    """
+
+    one_hot = T.zeros(
+        (x.shape[0], n),
+        dtype=T.float32,
+        device=x.device,
+    )
+    one_hot.scatter_(1, x.to(T.int64), 1.0)
+
+    return one_hot
+
+
 def mlp(
     input_size: int,
     layer_sizes: list[int],

@@ -9,7 +9,12 @@ from ray.actor import ActorProxy
 from typing_extensions import Any, Self, Type
 
 from mu_zero_smt.games.abstract_game import AbstractGame
-from mu_zero_smt.models import MuZeroNetwork, support_to_scalar
+from mu_zero_smt.models import (
+    MuZeroNetwork,
+    one_hot_encode,
+    sample_continuous_params,
+    support_to_scalar,
+)
 from mu_zero_smt.replay_buffer import ReplayBuffer
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.utils.config import MuZeroConfig
@@ -73,7 +78,7 @@ class SelfPlay:
                 game_history = self.play_game(0, False)
 
                 # Save to the shared storage
-                shared_storage.set_info_all.remote(
+                shared_storage.set_info_batch.remote(
                     {
                         "episode_length": len(game_history.action_history) - 1,
                         "total_reward": sum(game_history.reward_history),
@@ -138,9 +143,9 @@ class SelfPlay:
                     stacked_observations,
                     True,
                 )
-                action = self.select_action(root, temperature)
+                action, params = self.select_action(root, temperature)
 
-                observation, reward, done = self.game.step(action)
+                observation, reward, done = self.game.step(action, params)
 
                 if render_game:
                     print(f"Played action: {self.game.action_to_string(action)}")
@@ -152,6 +157,7 @@ class SelfPlay:
 
                 # Next batch
                 game_history.action_history.append(action)
+                game_history.param_history.append(params)
                 game_history.observation_history.append(observation)
                 game_history.reward_history.append(reward)
 
@@ -161,22 +167,28 @@ class SelfPlay:
         self.game.close()
 
     @staticmethod
-    def select_action(node: "MCTSNode", temperature: float) -> int:
+    def select_action(node: "MCTSNode", temperature: float) -> tuple[int, np.ndarray]:
         """
         Select action according to the visit count distribution and the temperature.
         The temperature is changed dynamically with the visit_softmax_temperature function
         in the config.
         """
 
-        actions = [action for action in node.children.keys()]
-        visit_counts = np.array([child.visit_count for child in node.children.values()])
+        parameterized_actions = [
+            (action, params)
+            for action, lst in node.children.items()
+            for _, params in lst
+        ]
+        visit_counts = np.array(
+            [n.visit_count for lst in node.children.values() for n, _ in lst]
+        )
 
         if temperature == 0:
             # Greedly select the best action
-            action = actions[np.argmax(visit_counts)]
+            choice = np.argmax(visit_counts)
         elif temperature == float("inf"):
             # Select each action with equal probability
-            action = np.random.choice(actions)
+            choice = np.random.choice(range(len(visit_counts)))
         else:
             # See paper appendix Data Generation
 
@@ -186,9 +198,15 @@ class SelfPlay:
                 visit_count_distribution
             )
 
-            action = np.random.choice(actions, p=visit_count_distribution)
+            choice = np.random.choice(
+                range(len(visit_counts)), p=visit_count_distribution
+            )
 
-        return action
+        action, t_params = parameterized_actions[choice]
+
+        params = t_params.cpu().detach().numpy()
+
+        return action, params
 
 
 class MCTS:
@@ -237,6 +255,12 @@ class MCTS:
             hidden_state,
         ) = model.initial_inference(observation)
 
+        continuous_params = sample_continuous_params(
+            policy_logits,
+            self.config.continuous_action_space,
+            self.config.num_continuous_samples,
+        )
+
         # Convert model predicted root value and reward to an actual scalar
         value = support_to_scalar(value_support, self.config.support_size).item()
         reward = support_to_scalar(reward_support, self.config.support_size).item()
@@ -247,6 +271,7 @@ class MCTS:
             reward,
             self.config.discrete_action_space,
             policy_logits,
+            continuous_params,
         )
 
         # Add dirichlet exploration noise to root to make children selection non-deterministic
@@ -263,16 +288,33 @@ class MCTS:
             search_path = [node]
 
             while node.is_expanded():
-                node, action = self.select_child(node, min_max_stats)
+                node, action, continuous_params = self.select_child(node, min_max_stats)
                 search_path.append(node)
 
             # Get the parent of the last node which is not expanded
             # Calculate the new hidden state, and the policy / reward of that node based on the parent's hiden state
             parent = search_path[-2]
+
             value_support, reward_support, policy_logits, hidden_state = (
                 model.recurrent_inference(
-                    parent.hidden_state, T.tensor([[action]], device=device)
+                    parent.hidden_state,
+                    T.concat(
+                        (
+                            one_hot_encode(
+                                T.tensor([[action]], device=device),
+                                self.config.discrete_action_space,
+                            ),
+                            continuous_params.unsqueeze(0),
+                        ),
+                        dim=1,
+                    ),
                 )
+            )
+
+            continuous_params = sample_continuous_params(
+                policy_logits,
+                self.config.continuous_action_space,
+                self.config.num_continuous_samples,
             )
 
             # Convert model predicted value and reward to scalars
@@ -285,6 +327,7 @@ class MCTS:
                 reward,
                 self.config.discrete_action_space,
                 policy_logits,
+                continuous_params,
             )
 
             # Propagate up teh search path with the value received
@@ -294,7 +337,7 @@ class MCTS:
 
     def select_child(
         self: Self, node: "MCTSNode", min_max_stats: "MinMaxStats"
-    ) -> tuple["MCTSNode", int]:
+    ) -> tuple["MCTSNode", int, T.Tensor]:
         """
         Select the child with the highest UCB score.
 
@@ -303,28 +346,36 @@ class MCTS:
             min_max_stats (MinMaxStats): Stats of the tree for normalizing
 
         Returns:
-            tuple[MCTSNode, int]: tuple of the child and associated action
+            tuple[MCTSNode, int, T.Tensor]: tuple of the child, associated action, and continuous params
         """
 
         # Find the child with the maximum PUCT score
         puct_scores = [
-            self.puct_score(node, child, min_max_stats)
-            for child in node.children.values()
+            self.puct_score(node, n, min_max_stats)
+            for lst in node.children.values()
+            for n, _ in lst
         ]
 
         max_puct_score = max(puct_scores)
 
         # Only selecting the first introduces bias that is actually noticable for performance
         # Break this bias by selecting a random choice
-        selected_action = random.choice(
+        node, action, params = random.choice(
             [
-                action
-                for action, puct_score in zip(node.children.keys(), puct_scores)
+                tup
+                for tup, puct_score in zip(
+                    (
+                        (n, a, params)
+                        for a, lst in node.children.items()
+                        for n, params in lst
+                    ),
+                    puct_scores,
+                )
                 if puct_score == max_puct_score
             ]
         )
 
-        return node.children[selected_action], selected_action
+        return node, action, params
 
     def puct_score(
         self: Self, parent: "MCTSNode", child: "MCTSNode", min_max_stats: "MinMaxStats"
@@ -400,7 +451,7 @@ class MCTSNode:
         self.hidden_state: T.Tensor = T.empty(0)
         self.reward = 0.0
 
-        self.children: dict[int, MCTSNode] = {}
+        self.children: dict[int, list[tuple[MCTSNode, T.Tensor]]] = {}
 
     def is_expanded(self: Self) -> bool:
         """
@@ -425,6 +476,7 @@ class MCTSNode:
         reward: float,
         action_space: int,
         policy_logits: T.Tensor,
+        continous_params: T.Tensor,
     ) -> None:
         """
         We expand a node using the value, reward and policy prediction obtained from the
@@ -445,7 +497,13 @@ class MCTSNode:
 
         # Initialize children with the probability predicted by the policy
         for action, policy_prob in zip(range(action_space), policy_values):
-            self.children[action] = MCTSNode(policy_prob)
+            if continous_params.numel() == 0:
+                self.children[action] = [(MCTSNode(policy_prob), T.empty(0))]
+            else:
+                self.children[action] = [
+                    (MCTSNode(policy_prob / continous_params.shape[0]), c)
+                    for c in continous_params
+                ]
 
     def add_exploration_noise(
         self: Self, dirichlet_alpha: float, exploration_fraction: float
@@ -465,7 +523,8 @@ class MCTSNode:
 
         # Set the prior probabilities of children as a mix of the network prediction and noise
         for a, n in zip(actions, noise):
-            self.children[a].prior_prob = self.children[a].prior_prob * (1 - f) + n * f
+            for node, _ in self.children[a]:
+                node.prior_prob = node.prior_prob * (1 - f) + n * f
 
 
 class GameHistory:
@@ -476,6 +535,7 @@ class GameHistory:
     def __init__(self: Self) -> None:
         self.observation_history: list[np.ndarray] = []
         self.action_history: list[int] = []
+        self.param_history: list[np.ndarray] = []
         self.reward_history: list[float] = []
         self.child_visits: list[list[float]] = []
         self.root_values: list[float] = []
@@ -489,11 +549,13 @@ class GameHistory:
     ) -> None:
         # Turn visit count from root into a policy
         if root is not None:
-            sum_visits = sum(child.visit_count for child in root.children.values())
+            sum_visits = sum(
+                n.visit_count for lst in root.children.values() for n, _ in lst
+            )
             self.child_visits.append(
                 [
                     (
-                        root.children[a].visit_count / sum_visits
+                        sum(n.visit_count for n, _ in root.children[a]) / sum_visits
                         if a in root.children
                         else 0
                     )

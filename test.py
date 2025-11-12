@@ -46,9 +46,9 @@ def main() -> None:
                 stacked_observations,
                 True,
             )
-            action = SelfPlay.select_action(root, 0)
+            action, params = SelfPlay.select_action(root, 0)
 
-            observation, reward, done = game.step(action)
+            observation, reward, done = game.step(action, params)
 
             game_history.store_search_statistics(root, config.discrete_action_space)
 

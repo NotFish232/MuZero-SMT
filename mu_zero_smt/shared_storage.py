@@ -32,7 +32,7 @@ class SharedStorage:
         return self.current_checkpoint[key]
 
     @ray.method
-    def get_info_all(self: Self, keys: list[str]) -> dict[str, Any]:
+    def get_info_batch(self: Self, keys: list[str]) -> dict[str, Any]:
         return {key: self.current_checkpoint[key] for key in keys}
 
     @ray.method
@@ -44,5 +44,5 @@ class SharedStorage:
         self.current_checkpoint[key] = value
 
     @ray.method
-    def set_info_all(self: Self, key_and_values: dict[str, Any]) -> None:
+    def set_info_batch(self: Self, key_and_values: dict[str, Any]) -> None:
         self.current_checkpoint.update(key_and_values)

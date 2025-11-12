@@ -11,6 +11,7 @@ from typing_extensions import Any, Self
 
 from mu_zero_smt.models import (
     dict_to_cpu,
+    one_hot_encode,
     scalar_to_support,
     support_to_scalar,
 )
@@ -88,7 +89,7 @@ class Trainer:
 
             # Save to the shared storage
             if self.training_step % self.config.checkpoint_interval == 0:
-                shared_storage.set_info_all.remote(
+                shared_storage.set_info_batch.remote(
                     {
                         "weights": copy.deepcopy(dict_to_cpu(self.model.state_dict())),
                         "optimizer_state": copy.deepcopy(
@@ -98,7 +99,7 @@ class Trainer:
                 )
                 if self.config.save_model:
                     shared_storage.save_checkpoint.remote()
-            shared_storage.set_info_all.remote(
+            shared_storage.set_info_batch.remote(
                 {
                     "training_step": self.training_step,
                     "lr": self.optimizer.param_groups[0]["lr"],
@@ -171,11 +172,20 @@ class Trainer:
         predictions = [(value, reward, policy_logits)]
         for i in range(1, action_batch.shape[1]):
             value, reward, policy_logits, hidden_state = self.model.recurrent_inference(
-                hidden_state, action_batch[:, i]
+                hidden_state,
+                one_hot_encode(
+                    action_batch[:, i],
+                    self.config.discrete_action_space
+                    + self.config.continuous_action_space,
+                ),
             )
+
+            policy = policy_logits[:, :self.config.discrete_action_space]
+            continuous_params = policy_logits[:, self.config.discrete_action_space:]
+
             # Scale the gradient at the start of the dynamics function (See paper appendix Training)
             hidden_state.register_hook(lambda grad: grad * 0.5)
-            predictions.append((value, reward, policy_logits))
+            predictions.append((value, reward, policy))
         # predictions: num_unroll_steps+1, 3, batch, 2*support_size+1 | 2*support_size+1 | 9 (according to the 2nd dim)
 
         ## Compute losses

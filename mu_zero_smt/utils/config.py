@@ -35,6 +35,7 @@ class MuZeroConfig:
     selfplay_on_gpu: bool
     max_moves: int  # Maximum number of moves if game is not finished before
     num_simulations: int  # Number of future moves self-simulated
+    num_continuous_samples: int  # Number of samples of continuous parameters to take
     discount: float  # Chronological discount of the reward
     # Root prior exploration noise
     root_dirichlet_alpha: float

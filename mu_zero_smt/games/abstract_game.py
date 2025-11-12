@@ -23,12 +23,15 @@ class AbstractGame(ABC):
         """
 
     @abstractmethod
-    def step(self: Self, action: int) -> tuple[np.ndarray, float, bool]:
+    def step(
+        self: Self, action: int, params: np.ndarray
+    ) -> tuple[np.ndarray, float, bool]:
         """
         Apply action to the game.
 
         Args:
             action : action of the action_space to take.
+            params: continuous params in the range [0, 1]
 
         Returns:
             The new observation, the reward and a boolean if the game has ended.

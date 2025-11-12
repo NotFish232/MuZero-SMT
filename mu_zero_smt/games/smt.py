@@ -123,13 +123,14 @@ class Game(AbstractGame):
             num_workers=5,  # Number of simultaneous threads/workers self-playing to feed the replay buffer
             selfplay_on_gpu=False,
             max_moves=MAX_NUM_TACTICS,  # Maximum number of moves if game is not finished before
-            num_simulations=10,  # Number of future moves self-simulated
-            discount=1,  # Chronological discount of the reward
+            num_simulations=100,  # Number of future moves self-simulated
+            num_continuous_samples=10,
+            discount=0.99,  # Chronological discount of the reward
             # Root prior exploration noise
             root_dirichlet_alpha=0.25,
             root_exploration_fraction=0.25,
             # UCB formula
-            pb_c_base=19652,
+            pb_c_base=1000,
             pb_c_init=1.25,
             ### Network
             network=FTCNetwork,
@@ -193,7 +194,9 @@ class Game(AbstractGame):
             self.current_goal, self.probes, self.time_spent
         ).reshape(1, 1, -1)
 
-    def step(self: Self, action: int) -> tuple[np.ndarray, float, bool]:
+    def step(
+        self: Self, action: int, params: np.ndarray
+    ) -> tuple[np.ndarray, float, bool]:
         """
         Apply action to the game.
 
@@ -203,6 +206,8 @@ class Game(AbstractGame):
         Returns:
             The new observation, the reward and a boolean if the game has ended.
         """
+
+        print(f"STEP with {params}")
 
         current_file = self.files[self.selected_idx]
         tactic = self.tactics[action]

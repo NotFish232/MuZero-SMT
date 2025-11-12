@@ -57,34 +57,31 @@ class Game(AbstractGame):
             ),  # Dimensions of the game observation, must be 3D (channel, height, width). For a 1D array, please reshape it to (1, 1, length of array)
             discrete_action_space=2,  # Fixed list of all possible actions. You should only edit the length
             continuous_action_space=0,
-            stacked_observations=0  # Number of previous observations and previous actions to add to the current observation
+            stacked_observations=0,  # Number of previous observations and previous actions to add to the current observation
             ### Self-Play
-            ,
             num_workers=1,  # Number of simultaneous threads/workers self-playing to feed the replay buffer
             selfplay_on_gpu=False,
             max_moves=EPISODE_LENGTH,  # Maximum number of moves if game is not finished before
             num_simulations=50,  # Number of future moves self-simulated
+            num_continuous_samples=0,
             discount=0.997,  # Chronological discount of the reward
             # Root prior exploration noise
             root_dirichlet_alpha=0.25,
-            root_exploration_fraction=0.25
+            root_exploration_fraction=0.25,
             # UCB formula
-            ,
             pb_c_base=19652,
             pb_c_init=1.25,
             ### Network
             network=FTCNetwork,
-            support_size=10  # Value and reward are scaled (with almost sqrt) and encoded on a vector with a range of -support_size to support_size. Choose it so that support_size <= sqrt(max(abs(discounted reward)))
+            support_size=10,  # Value and reward are scaled (with almost sqrt) and encoded on a vector with a range of -support_size to support_size. Choose it so that support_size <= sqrt(max(abs(discounted reward)))
             # Fully Connected Network
-            ,
             encoding_size=8,
             fc_representation_layers=[],  # Define the hidden layers in the representation network
             fc_dynamics_layers=[16],  # Define the hidden layers in the dynamics network
             fc_reward_layers=[16],  # Define the hidden layers in the reward network
             fc_value_layers=[16],  # Define the hidden layers in the value network
-            fc_policy_layers=[16]  # Define the hidden layers in the policy network
+            fc_policy_layers=[16],  # Define the hidden layers in the policy network
             ### Training
-            ,
             results_path=pathlib.Path(__file__).resolve().parents[2]
             / "results"
             / pathlib.Path(__file__).stem
@@ -101,22 +98,20 @@ class Game(AbstractGame):
             # Exponential learning rate schedule
             lr_init=0.02,  # Initial learning rate
             lr_decay_rate=0.8,  # Set it to 1 to use a constant learning rate
-            lr_decay_steps=1000
+            lr_decay_steps=1000,
             ### Replay Buffer
-            ,
             replay_buffer_size=500,  # Number of self-play games to keep in the replay buffer
             num_unroll_steps=10,  # Number of game moves to keep for every batch element
             td_steps=50,  # Number of steps in the future to take into account for calculating the target value
-            priority_alpha=0.5  # How much prioritization is used, 0 corresponding to the uniform case, paper suggests 1
+            priority_alpha=0.5,  # How much prioritization is used, 0 corresponding to the uniform case, paper suggests 1
             ### Adjust the self play / training ratio to avoid over/underfitting
-            ,
             self_play_delay=0,  # Number of seconds to wait after each played game
             training_delay=0,  # Number of seconds to wait after each training step
             ratio=1.5,  # Desired training steps per self played step ratio. Equivalent to a synchronous version, training can take much longer. Set it to None to disable it
             visit_softmax_temperature_fn=visit_softmax_temperature_fn,
         )
 
-    def step(self, action):
+    def step(self, action, params):
         """
         Apply action to the game.
 

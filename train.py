@@ -84,8 +84,6 @@ class MuZero:
             "weights": None,
             "optimizer_state": None,
             "total_reward": 0,
-            "muzero_reward": 0,
-            "opponent_reward": 0,
             "episode_length": 0,
             "mean_value": 0,
             "training_step": 0,
@@ -239,8 +237,6 @@ class MuZero:
         counter = 0
         keys = [
             "total_reward",
-            "muzero_reward",
-            "opponent_reward",
             "episode_length",
             "mean_value",
             "training_step",
@@ -253,10 +249,10 @@ class MuZero:
             "num_played_steps",
             "num_reanalysed_games",
         ]
-        info = ray.get(self.shared_storage_worker.get_info_all.remote(keys))
+        info = ray.get(self.shared_storage_worker.get_info_batch.remote(keys))
         try:
             while info["training_step"] < self.config.training_steps:
-                info = ray.get(self.shared_storage_worker.get_info_all.remote(keys))
+                info = ray.get(self.shared_storage_worker.get_info_batch.remote(keys))
                 writer.add_scalar(
                     "1.Total_reward/1.Total_reward",
                     info["total_reward"],
@@ -270,16 +266,6 @@ class MuZero:
                 writer.add_scalar(
                     "1.Total_reward/3.Episode_length",
                     info["episode_length"],
-                    counter,
-                )
-                writer.add_scalar(
-                    "1.Total_reward/4.MuZero_reward",
-                    info["muzero_reward"],
-                    counter,
-                )
-                writer.add_scalar(
-                    "1.Total_reward/5.Opponent_reward",
-                    info["opponent_reward"],
                     counter,
                 )
                 writer.add_scalar(

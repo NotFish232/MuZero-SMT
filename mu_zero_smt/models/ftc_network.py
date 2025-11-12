@@ -17,6 +17,7 @@ class FTCNetwork(MuZeroNetwork):
             config.observation_shape,
             config.stacked_observations,
             config.discrete_action_space,
+            config.continuous_action_space,
             config.encoding_size,
             config.fc_reward_layers,
             config.fc_value_layers,
@@ -30,7 +31,8 @@ class FTCNetwork(MuZeroNetwork):
         self: Self,
         observation_shape: tuple[int, ...],
         stacked_observations: int,
-        action_space_size: int,
+        discrete_action_space_size: int,
+        continuous_action_size: int,
         encoded_state_size: int,
         fc_reward_layers: list[int],
         fc_value_layers: list[int],
@@ -41,7 +43,8 @@ class FTCNetwork(MuZeroNetwork):
     ) -> None:
         super().__init__()
 
-        self.action_space_size = action_space_size
+        self.action_space_size = discrete_action_space_size + continuous_action_size
+
         self.encoded_state_size = encoded_state_size
 
         # Size of entire support with a support for values in range -[support_size, support_size]
@@ -77,7 +80,9 @@ class FTCNetwork(MuZeroNetwork):
         # Input is the encoded space
         # Output is logits over the action space
         self.prediction_policy_network = mlp(
-            self.encoded_state_size, fc_policy_layers, self.action_space_size
+            self.encoded_state_size,
+            fc_policy_layers,
+            self.action_space_size + continuous_action_size,
         )
 
         # Prediction value network
@@ -154,18 +159,10 @@ class FTCNetwork(MuZeroNetwork):
         """
 
         # encoded_state: (batch size, encoded state size)
-        # action: (batch size, 1)
-
-        # One hot encode the action
-        action_one_hot = T.zeros(
-            (action.shape[0], self.action_space_size),
-            dtype=T.float32,
-            device=action.device,
-        )
-        action_one_hot.scatter_(1, action.to(T.int64), 1.0)
+        # action: (batch size, action space size)
 
         # Stack encoded_state with a game specific one hot encoded action (See paper appendix Network Architecture)
-        x = T.cat((encoded_state, action_one_hot), dim=1)
+        x = T.cat((encoded_state, action), dim=1)
 
         # Using the dynamics networks get both the next state and reward
         next_encoded_state = self.dynamics_state_network(x)
@@ -240,7 +237,7 @@ class FTCNetwork(MuZeroNetwork):
         """
 
         # encoded_state: (batch size, encoded state size)
-        # action: (batch size, 1)
+        # action: (batch size, action size)
 
         next_encoded_state, reward = self.dynamics(encoded_state, action)
         policy_logits, value = self.prediction(next_encoded_state)
