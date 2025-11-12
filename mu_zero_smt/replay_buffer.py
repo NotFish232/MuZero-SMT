@@ -100,6 +100,7 @@ class ReplayBuffer:
         tuple[
             list[np.ndarray],
             list[list[int]],
+            list[list[np.ndarray]],
             list[list[float]],
             list[list[float]],
             list[list[list[float]]],
@@ -111,17 +112,18 @@ class ReplayBuffer:
             index_batch,
             observation_batch,
             action_batch,
+            param_batch,
             reward_batch,
             value_batch,
             policy_batch,
             l_weight_batch,
             gradient_scale_batch,
-        ) = ([], [], [], [], [], [], [], [])
+        ) = ([], [], [], [], [], [], [], [], [])
 
         for game_id, game_history, game_prob in self.sample_n_games(self.config.batch_size, False):  # type: ignore
             game_pos, pos_prob = self.sample_position(game_history)
 
-            values, rewards, policies, actions = self.make_target(
+            values, rewards, policies, actions, params = self.make_target(
                 game_history, game_pos
             )
 
@@ -134,6 +136,7 @@ class ReplayBuffer:
                 )
             )
             action_batch.append(actions)
+            param_batch.append(params)
             value_batch.append(values)
             reward_batch.append(rewards)
             policy_batch.append(policies)
@@ -163,6 +166,7 @@ class ReplayBuffer:
             (
                 observation_batch,
                 action_batch,
+                param_batch,
                 value_batch,
                 reward_batch,
                 policy_batch,
@@ -298,12 +302,20 @@ class ReplayBuffer:
 
     def make_target(
         self: Self, game_history: "GameHistory", state_index: int
-    ) -> tuple[list[float], list[float], list[list[float]], list[int]]:
+    ) -> tuple[
+        list[float], list[float], list[list[float]], list[int], list[np.ndarray]
+    ]:
         """
         Generate targets for every unroll steps.
         """
 
-        target_values, target_rewards, target_policies, actions = [], [], [], []
+        target_values, target_rewards, target_policies, actions, params = (
+            [],
+            [],
+            [],
+            [],
+            [],
+        )
         for current_index in range(
             state_index, state_index + self.config.num_unroll_steps + 1
         ):
@@ -314,6 +326,7 @@ class ReplayBuffer:
                 target_rewards.append(game_history.reward_history[current_index])
                 target_policies.append(game_history.child_visits[current_index])
                 actions.append(game_history.action_history[current_index])
+                params.append(game_history.param_history[current_index])
             elif current_index == len(game_history.root_values):
                 target_values.append(0)
                 target_rewards.append(game_history.reward_history[current_index])
@@ -325,6 +338,7 @@ class ReplayBuffer:
                     ]
                 )
                 actions.append(game_history.action_history[current_index])
+                params.append(game_history.param_history[current_index])
             else:
                 # States past the end of games are treated as absorbing states
                 target_values.append(0)
@@ -339,8 +353,9 @@ class ReplayBuffer:
                 actions.append(
                     np.random.choice(range(self.config.discrete_action_space))
                 )
+                params.append(np.zeros(self.config.continuous_action_space))
 
-        return target_values, target_rewards, target_policies, actions
+        return target_values, target_rewards, target_policies, actions, params
 
 
 class Reanalyse:

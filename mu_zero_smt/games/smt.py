@@ -24,7 +24,7 @@ logging.basicConfig(
 
 SOLVING_TIMEOUT = 60
 
-MAX_NUM_TACTICS = 10
+MAX_NUM_TACTICS = 25
 
 
 BENCHMARK_DIR = "data/non-incremental/QF_NIA/20170427-VeryMax/CInteger"
@@ -125,7 +125,7 @@ class Game(AbstractGame):
             max_moves=MAX_NUM_TACTICS,  # Maximum number of moves if game is not finished before
             num_simulations=100,  # Number of future moves self-simulated
             num_continuous_samples=10,
-            discount=0.99,  # Chronological discount of the reward
+            discount=1,  # Chronological discount of the reward
             # Root prior exploration noise
             root_dirichlet_alpha=0.25,
             root_exploration_fraction=0.25,
@@ -207,7 +207,7 @@ class Game(AbstractGame):
             The new observation, the reward and a boolean if the game has ended.
         """
 
-        print(f"STEP with {params}")
+        timeout = params[0]
 
         current_file = self.files[self.selected_idx]
         tactic = self.tactics[action]
@@ -217,7 +217,9 @@ class Game(AbstractGame):
 
         self.num_tactics_applied += 1
 
-        acc_tactic = z3.TryFor(tactic, int((SOLVING_TIMEOUT - self.time_spent) * 1_000))
+        acc_tactic = z3.TryFor(
+            tactic, int(timeout * (SOLVING_TIMEOUT - self.time_spent) * 1_000)
+        )
 
         try:
             start = perf_counter()
@@ -234,7 +236,7 @@ class Game(AbstractGame):
                 )
 
             logging.info(
-                f'{current_file.stem} | Ran tactic "{TACTICS[action]}" successfully'
+                f'{current_file.stem} | Ran tactic "{TACTICS[action]}" ({timeout:.2f}) successfully'
             )
 
             self.current_goal = sub_goals[0]
@@ -256,10 +258,15 @@ class Game(AbstractGame):
             msg = e.args[0].decode()
 
             if msg == "canceled":
-                done = True
-                reward = -1
+                end = perf_counter()
 
-                logging.info(f"{current_file.stem} | TERM - Timing out")
+                self.time_spent += end - start
+
+                if self.time_spent > SOLVING_TIMEOUT:
+                    done = True
+                    reward = -1
+
+                    logging.info(f"{current_file.stem} | TERM - Timing out")
             elif self.num_tactics_applied >= MAX_NUM_TACTICS:
                 reward = -1
                 done = True

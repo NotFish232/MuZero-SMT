@@ -1,7 +1,7 @@
 import copy
 import time
 
-import numpy
+import numpy as np
 import ray
 import torch as T
 from ray.actor import ActorProxy
@@ -32,7 +32,7 @@ class Trainer:
         self.config = config
 
         # Fix random generator seed
-        numpy.random.seed(self.config.seed)
+        np.random.seed(self.config.seed)
         T.manual_seed(self.config.seed)
 
         # Initialize the network
@@ -133,6 +133,7 @@ class Trainer:
         (
             observation_batch,
             action_batch,
+            param_batch,
             target_value,
             target_reward,
             target_policy,
@@ -141,14 +142,15 @@ class Trainer:
         ) = batch
 
         # Keep values as scalars for calculating the priorities for the prioritized replay
-        target_value_scalar = numpy.array(target_value, dtype="float32")
-        priorities = numpy.zeros_like(target_value_scalar)
+        target_value_scalar = np.array(target_value, dtype="float32")
+        priorities = np.zeros_like(target_value_scalar)
 
         device = next(self.model.parameters()).device
 
         weight_batch = T.tensor(weight_batch.copy()).float().to(device)
-        observation_batch = T.tensor(numpy.array(observation_batch)).float().to(device)
+        observation_batch = T.tensor(np.array(observation_batch)).float().to(device)
         action_batch = T.tensor(action_batch).long().to(device).unsqueeze(-1)
+        param_batch = T.tensor(np.array(param_batch), dtype=T.float32, device=device)
         target_value = T.tensor(target_value).float().to(device)
         target_reward = T.tensor(target_reward).float().to(device)
         target_policy = T.tensor(target_policy).float().to(device)
@@ -169,36 +171,46 @@ class Trainer:
         value, reward, policy_logits, hidden_state = self.model.initial_inference(
             observation_batch
         )
-        predictions = [(value, reward, policy_logits)]
+
+        policy = policy_logits[:, : self.config.discrete_action_space]
+        continuous_params = policy_logits[:, self.config.discrete_action_space :]
+
+        predictions = [(value, reward, policy, continuous_params)]
         for i in range(1, action_batch.shape[1]):
             value, reward, policy_logits, hidden_state = self.model.recurrent_inference(
                 hidden_state,
-                one_hot_encode(
-                    action_batch[:, i],
-                    self.config.discrete_action_space
-                    + self.config.continuous_action_space,
+                T.concat(
+                    (
+                        one_hot_encode(
+                            action_batch[:, i], self.config.discrete_action_space
+                        ),
+                        param_batch[:, i],
+                    ),
+                    dim=1,
                 ),
             )
 
-            policy = policy_logits[:, :self.config.discrete_action_space]
-            continuous_params = policy_logits[:, self.config.discrete_action_space:]
+            policy = policy_logits[:, : self.config.discrete_action_space]
+            continuous_params = policy_logits[:, self.config.discrete_action_space :]
 
             # Scale the gradient at the start of the dynamics function (See paper appendix Training)
             hidden_state.register_hook(lambda grad: grad * 0.5)
-            predictions.append((value, reward, policy))
+            predictions.append((value, reward, policy, continuous_params))
         # predictions: num_unroll_steps+1, 3, batch, 2*support_size+1 | 2*support_size+1 | 9 (according to the 2nd dim)
 
         ## Compute losses
         value_loss, reward_loss, policy_loss = (0, 0, 0)
-        value, reward, policy_logits = predictions[0]
+        value, reward, policy_logits, params = predictions[0]
         # Ignore reward loss for the first batch step
         current_value_loss, _, current_policy_loss = self.loss_function(
             value.squeeze(-1),
             reward.squeeze(-1),
             policy_logits,
+            params,
             target_value[:, 0],
             target_reward[:, 0],
             target_policy[:, 0],
+            param_batch[:, 0],
         )
         value_loss += current_value_loss
         policy_loss += current_policy_loss
@@ -211,12 +223,12 @@ class Trainer:
             .squeeze()
         )
         priorities[:, 0] = (
-            numpy.abs(pred_value_scalar - target_value_scalar[:, 0])
+            np.abs(pred_value_scalar - target_value_scalar[:, 0])
             ** self.config.priority_alpha
         )
 
         for i in range(1, len(predictions)):
-            value, reward, policy_logits = predictions[i]
+            value, reward, policy_logits, params = predictions[i]
             (
                 current_value_loss,
                 current_reward_loss,
@@ -225,9 +237,11 @@ class Trainer:
                 value.squeeze(-1),
                 reward.squeeze(-1),
                 policy_logits,
+                params,
                 target_value[:, i],
                 target_reward[:, i],
                 target_policy[:, i],
+                param_batch[:, i],
             )
 
             # Scale gradient by the number of unroll steps (See paper appendix Training)
@@ -254,7 +268,7 @@ class Trainer:
                 .squeeze()
             )
             priorities[:, i] = (
-                numpy.abs(pred_value_scalar - target_value_scalar[:, i])
+                np.abs(pred_value_scalar - target_value_scalar[:, i])
                 ** self.config.priority_alpha
             )
 
@@ -296,13 +310,21 @@ class Trainer:
         value: T.Tensor,
         reward: T.Tensor,
         policy_logits: T.Tensor,
+        params: T.Tensor,
         target_value: T.Tensor,
         target_reward: T.Tensor,
         target_policy: T.Tensor,
+        target_params: T.Tensor,
     ) -> tuple[T.Tensor, T.Tensor, T.Tensor]:
         # Cross-entropy seems to have a better convergence than MSE
         value_loss = (-target_value * F.log_softmax(value, dim=1)).sum(1)
         reward_loss = (-target_reward * F.log_softmax(reward, dim=1)).sum(1)
         policy_loss = (-target_policy * F.log_softmax(policy_logits, dim=1)).sum(1)
+
+        # If we have continuous parameters add it to the policy loss
+        if params.numel() != 0:
+            policy_loss += F.gaussian_nll_loss(
+                params[:, 0], target_params, params[:, 1]
+            )
 
         return value_loss, reward_loss, policy_loss

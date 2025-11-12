@@ -1,6 +1,7 @@
 import math
 
 import torch as T
+from torch.nn import functional as F
 from typing_extensions import Self, override
 
 from mu_zero_smt.utils.config import MuZeroConfig
@@ -31,7 +32,7 @@ class FTCNetwork(MuZeroNetwork):
         self: Self,
         observation_shape: tuple[int, ...],
         stacked_observations: int,
-        discrete_action_space_size: int,
+        discrete_action_size: int,
         continuous_action_size: int,
         encoded_state_size: int,
         fc_reward_layers: list[int],
@@ -43,7 +44,8 @@ class FTCNetwork(MuZeroNetwork):
     ) -> None:
         super().__init__()
 
-        self.action_space_size = discrete_action_space_size + continuous_action_size
+        self.discrete_action_size = discrete_action_size
+        self.continuous_action_size = continuous_action_size
 
         self.encoded_state_size = encoded_state_size
 
@@ -64,7 +66,9 @@ class FTCNetwork(MuZeroNetwork):
         # Dynamics state transition network
         # Input is the encoded space + an action
         self.dynamics_state_network = mlp(
-            self.encoded_state_size + self.action_space_size,
+            self.encoded_state_size
+            + self.discrete_action_size
+            + self.continuous_action_size,
             fc_dynamics_layers,
             self.encoded_state_size,
         )
@@ -82,7 +86,7 @@ class FTCNetwork(MuZeroNetwork):
         self.prediction_policy_network = mlp(
             self.encoded_state_size,
             fc_policy_layers,
-            self.action_space_size + continuous_action_size,
+            self.discrete_action_size + 2 * continuous_action_size,
         )
 
         # Prediction value network
@@ -106,6 +110,13 @@ class FTCNetwork(MuZeroNetwork):
         # encoded_state: (batch size, encoded state size)
 
         policy_logits = self.prediction_policy_network(encoded_state)
+
+        # make continuous standard deviations positive
+        mask = T.zeros_like(policy_logits, dtype=T.bool)
+        mask[:, self.discrete_action_size + 1 :: 2] = True
+
+        policy_logits = T.where(mask, F.softplus(policy_logits), policy_logits)
+
         value = self.prediction_value_network(encoded_state)
 
         # policy_logits: (batch size, action space size)
@@ -207,7 +218,7 @@ class FTCNetwork(MuZeroNetwork):
             device=observation.device,
         )
         reward[:, self.full_support_size // 2] = 1
-        reward = T.log_(reward)
+        reward = T.log(reward)
 
         # encoded_state: (batch size, encoded state size)
         # policy_logits: (batch size, action space size)

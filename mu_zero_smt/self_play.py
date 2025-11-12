@@ -118,6 +118,7 @@ class SelfPlay:
         game_history = GameHistory()
 
         game_history.action_history.append(0)
+        game_history.param_history.append(np.zeros(self.config.continuous_action_space))
         game_history.observation_history.append(observation)
         game_history.reward_history.append(0)
 
@@ -145,7 +146,9 @@ class SelfPlay:
                 )
                 action, params = self.select_action(root, temperature)
 
-                observation, reward, done = self.game.step(action, params)
+                observation, reward, done = self.game.step(
+                    action, 1 / (1 + np.exp(params))
+                )
 
                 if render_game:
                     print(f"Played action: {self.game.action_to_string(action)}")

@@ -429,7 +429,7 @@ class MuZero:
             self.checkpoint["num_reanalysed_games"] = 0
 
 
-GAME_NAME = "cartpole"
+GAME_NAME = "smt"
 
 
 def main() -> None:
