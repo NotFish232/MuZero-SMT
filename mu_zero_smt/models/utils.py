@@ -115,7 +115,6 @@ def sample_continuous_params(
     )
 
     # Sample values for continuous parameters based on prediction
-    # Sigmoid it so its between range 0 and 1, where we will then scale
     continuous_params = T.normal(
         continuous_distribution[:, :, 0], continuous_distribution[:, :, 1]
     )

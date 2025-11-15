@@ -542,10 +542,6 @@ class GameHistory:
         self.reward_history: list[float] = []
         self.child_visits: list[list[float]] = []
         self.root_values: list[float] = []
-        self.reanalysed_predicted_root_values = None
-        # For PER
-        self.priorities = np.empty(0)
-        self.game_priority = 0.0
 
     def store_search_statistics(
         self: Self, root: MCTSNode | None, action_space: int

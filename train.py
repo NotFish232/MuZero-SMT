@@ -10,13 +10,12 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from typing_extensions import Any, Self, Type
 
-import mu_zero_smt.replay_buffer as replay_buffer
-import mu_zero_smt.self_play as self_play
-import mu_zero_smt.shared_storage as shared_storage
-import mu_zero_smt.trainer as trainer
 from mu_zero_smt.games.abstract_game import AbstractGame
 from mu_zero_smt.models import dict_to_cpu
-from mu_zero_smt.self_play import GameHistory
+from mu_zero_smt.replay_buffer import Reanalyse, ReplayBuffer
+from mu_zero_smt.self_play import GameHistory, SelfPlay
+from mu_zero_smt.shared_storage import SharedStorage
+from mu_zero_smt.trainer import Trainer
 from mu_zero_smt.utils.config import MuZeroConfig
 
 
@@ -129,7 +128,7 @@ class MuZero:
 
         # Initialize workers
         self.training_worker = (
-            ray.remote(trainer.Trainer)
+            ray.remote(Trainer)
             .options(
                 num_cpus=0,
                 num_gpus=num_gpus_per_worker if self.config.train_on_gpu else 0,
@@ -137,18 +136,18 @@ class MuZero:
             .remote(self.checkpoint, self.config)
         )
 
-        self.shared_storage_worker = ray.remote(shared_storage.SharedStorage).remote(
+        self.shared_storage_worker = ray.remote(SharedStorage).remote(
             self.checkpoint,
             self.config,
         )
         self.shared_storage_worker.set_info.remote("terminate", False)
 
-        self.replay_buffer_worker = ray.remote(replay_buffer.ReplayBuffer).remote(
+        self.replay_buffer_worker = ray.remote(ReplayBuffer).remote(
             self.checkpoint, self.replay_buffer, self.config
         )
 
         self.reanalyse_worker = (
-            ray.remote(replay_buffer.Reanalyse)
+            ray.remote(Reanalyse)
             .options(
                 num_cpus=0,
                 num_gpus=0,
@@ -157,7 +156,7 @@ class MuZero:
         )
 
         self.self_play_workers = [
-            ray.remote(self_play.SelfPlay)
+            ray.remote(SelfPlay)
             .options(
                 num_cpus=0,
                 num_gpus=num_gpus_per_worker if self.config.selfplay_on_gpu else 0,
@@ -197,7 +196,7 @@ class MuZero:
         """
         # Launch the test worker to get performance metrics
         self.test_worker = (
-            ray.remote(self_play.SelfPlay)
+            ray.remote(SelfPlay)
             .options(
                 num_cpus=0,
                 num_gpus=num_gpus,
@@ -364,7 +363,7 @@ class MuZero:
         """
         opponent = opponent if opponent else self.config.opponent
         muzero_player = muzero_player if muzero_player else self.config.muzero_player
-        self_play_worker = self_play.SelfPlay.options(
+        self_play_worker = SelfPlay.options(
             num_cpus=0,
             num_gpus=num_gpus,
         ).remote(self.checkpoint, self.Game, self.config, numpy.random.randint(10000))
@@ -429,7 +428,7 @@ class MuZero:
             self.checkpoint["num_reanalysed_games"] = 0
 
 
-GAME_NAME = "smt"
+GAME_NAME = "cartpole"
 
 
 def main() -> None:
