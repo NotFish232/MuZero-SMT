@@ -4,7 +4,7 @@ from time import perf_counter
 import torch as T
 from tqdm import tqdm  # type: ignore
 
-from mu_zero_smt.games.smt import Game as SMTGame
+from mu_zero_smt.environments.smt.smt import Game as SMTGame
 from mu_zero_smt.self_play import MCTS, GameHistory, SelfPlay
 
 CHECKPOINT = "results/smt/2025-11-01--22-29-26/model.checkpoint"
@@ -22,7 +22,7 @@ def main() -> None:
     model.load_state_dict(checkpoint["weights"])
     model.eval()
 
-    for _ in tqdm(range(len(game.files))):
+    for _ in tqdm(range(len(game.dataset))):
         observation = game.reset()
 
         done = False
@@ -62,7 +62,7 @@ def main() -> None:
         total_time = end - start
 
         logging.info(
-            f"EVAL | {game.files[game.selected_idx].stem} | {"SOLVED" if reward >= 1 else "UNSOLVED"} ({total_time:.2f}s)\n"
+            f"EVAL | {game.dataset[game.selected_idx].stem} | {"SOLVED" if reward >= 1 else "UNSOLVED"} ({total_time:.2f}s)\n"
             f"TACTICS: {[game.tactics[a] for a in game_history.action_history[1:]]}\n\n"
         )
 

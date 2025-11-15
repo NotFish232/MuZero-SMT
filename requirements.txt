@@ -1,12 +1,15 @@
 gymnasium
-nevergrad
-# numpy
+opencv-python
+pygame
+numpy
 ray[default]
 seaborn
 tensorboard
 torch
 z3-solver
+zstandard
 
 black
 isort
 autoflake
+mypy

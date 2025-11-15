@@ -10,7 +10,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from typing_extensions import Any, Self, Type
 
-from mu_zero_smt.games.abstract_game import AbstractGame
+from mu_zero_smt.environments.abstract_game import AbstractGame
 from mu_zero_smt.models import dict_to_cpu
 from mu_zero_smt.replay_buffer import Reanalyse, ReplayBuffer
 from mu_zero_smt.self_play import GameHistory, SelfPlay
@@ -49,9 +49,14 @@ class MuZero:
     ) -> None:
         # Load the game and the config from the module with the game name
         try:
-            game_module = importlib.import_module("mu_zero_smt.games." + game_name)
+            game_module = importlib.import_module(
+                f"mu_zero_smt.environments.{game_name}"
+            )
             self.Game: Type[AbstractGame] = game_module.Game
             self.config: MuZeroConfig = self.Game.get_config()
+
+            # Preload the data if its being downloaded so it doesn't happen in each actor
+            self.Game()
         except ModuleNotFoundError as err:
             print(
                 f'{game_name} is not a supported game name, try "cartpole" or refer to the documentation for adding a new game.'
@@ -433,7 +438,7 @@ class MuZero:
             self.checkpoint["num_reanalysed_games"] = 0
 
 
-GAME_NAME = "cartpole"
+GAME_NAME = "smt"
 
 
 def main() -> None:

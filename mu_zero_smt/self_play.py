@@ -8,7 +8,7 @@ import torch as T
 from ray.actor import ActorProxy
 from typing_extensions import Any, Self, Type
 
-from mu_zero_smt.games.abstract_game import AbstractGame
+from mu_zero_smt.environments.abstract_game import AbstractGame
 from mu_zero_smt.models import (
     MuZeroNetwork,
     one_hot_encode,

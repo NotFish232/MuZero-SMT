@@ -2,7 +2,6 @@ import datetime
 import logging
 import pathlib
 import random
-from pathlib import Path
 from time import perf_counter
 
 import numpy as np
@@ -12,7 +11,8 @@ from typing_extensions import Self, override
 
 from mu_zero_smt.models import FTCNetwork
 
-from .abstract_game import AbstractGame, MuZeroConfig
+from ..abstract_game import AbstractGame, MuZeroConfig
+from .dataset import SMTDataset
 
 logging.basicConfig(
     filename="information.log",
@@ -25,9 +25,6 @@ logging.basicConfig(
 SOLVING_TIMEOUT = 60
 
 MAX_NUM_TACTICS = 25
-
-
-BENCHMARK_DIR = "data/non-incremental/QF_NIA/20170427-VeryMax/CInteger"
 
 
 TACTICS = [
@@ -64,6 +61,9 @@ PROBES = [
     "is-propositional",
     "is-qfbv",
 ]
+
+
+TRAIN_TEST_SPLIT = {"train": 0.1, "test": 0.9}
 
 
 def create_probe_embedding(
@@ -140,10 +140,13 @@ class Game(AbstractGame):
             fc_representation_layers=[
                 16
             ],  # Define the hidden layers in the representation network
-            fc_dynamics_layers=[16],  # Define the hidden layers in the dynamics network
+            fc_dynamics_layers=[
+                16,
+                16,
+            ],  # Define the hidden layers in the dynamics network
             fc_reward_layers=[16],  # Define the hidden layers in the reward network
             fc_value_layers=[16],  # Define the hidden layers in the value network
-            fc_policy_layers=[16],  # Define the hidden layers in the policy network
+            fc_policy_layers=[16, 16],  # Define the hidden layers in the policy network
             ### Training
             results_path=pathlib.Path(__file__).resolve().parents[2]
             / "results"
@@ -175,7 +178,7 @@ class Game(AbstractGame):
         )
 
     def __init__(self: Self, seed: int | None = None, test_mode: bool = False) -> None:
-        self.files = [*Path(BENCHMARK_DIR).rglob("*.smt2")]
+        self.dataset = SMTDataset("QF_NIA/CInteger", "train", TRAIN_TEST_SPLIT)
 
         self.probes = [z3.Probe(p) for p in PROBES]
         self.tactics = [z3.Tactic(t) for t in TACTICS]
@@ -209,7 +212,7 @@ class Game(AbstractGame):
 
         timeout = params[0]
 
-        current_file = self.files[self.selected_idx]
+        current_file = self.dataset[self.selected_idx]
         tactic = self.tactics[action]
 
         reward = 0.0
@@ -292,10 +295,10 @@ class Game(AbstractGame):
         if self.test_mode:
             self.selected_idx += 1
         else:
-            self.selected_idx = random.randint(0, len(self.files) - 1)
+            self.selected_idx = random.randint(0, len(self.dataset) - 1)
 
         self.current_goal = z3.Goal()
-        self.current_goal.add(z3.parse_smt2_file(str(self.files[self.selected_idx])))
+        self.current_goal.add(z3.parse_smt2_file(str(self.dataset[self.selected_idx])))
 
         self.time_spent = 0.0
         self.num_tactics_applied = 0
