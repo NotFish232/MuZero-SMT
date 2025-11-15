@@ -1,12 +1,11 @@
 gymnasium
 nevergrad
 # numpy
-ray
+ray[default]
 seaborn
 tensorboard
 torch
 z3-solver
-sentence-transformers
 
 black
 isort

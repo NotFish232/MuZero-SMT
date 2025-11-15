@@ -1,11 +1,11 @@
 import importlib
 import math
+import os
 import pathlib
 import pickle
 import time
 
 import numpy
-import ray
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from typing_extensions import Any, Self, Type
@@ -17,6 +17,11 @@ from mu_zero_smt.self_play import GameHistory, SelfPlay
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.trainer import Trainer
 from mu_zero_smt.utils.config import MuZeroConfig
+
+os.environ["RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO"] = "0"
+
+
+import ray
 
 
 class MuZero:
@@ -76,7 +81,7 @@ class MuZero:
         if 1 < self.num_gpus:
             self.num_gpus = math.floor(self.num_gpus)
 
-        ray.init(num_gpus=total_gpus, ignore_reinit_error=True)
+        ray.init(num_gpus=total_gpus)
 
         # Checkpoint and replay buffer used to initialize workers
         self.checkpoint: dict[str, Any] = {
