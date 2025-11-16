@@ -267,6 +267,10 @@ class Game(AbstractGame):
 
                 self.time_spent += end - start
 
+                logging.info(
+                    f'{current_file.stem} | Tactic "{TACTICS[action]}" ({timeout:.2f}) timed out'
+                )
+
                 if self.time_spent > SOLVING_TIMEOUT:
                     done = True
                     reward = -1

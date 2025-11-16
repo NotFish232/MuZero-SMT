@@ -2,9 +2,11 @@ import logging
 from pathlib import Path
 from time import perf_counter
 
+import numpy as np
 import torch as T
 from tqdm import tqdm  # type: ignore
 
+from mu_zero_smt.environments.smt.smt import TACTICS
 from mu_zero_smt.environments.smt.smt import Game as SMTGame
 from mu_zero_smt.self_play import MCTS, GameHistory, SelfPlay
 
@@ -35,6 +37,7 @@ def main() -> None:
         game_history.action_history.append(0)
         game_history.observation_history.append(observation)
         game_history.reward_history.append(0)
+        game_history.param_history.append(np.zeros(config.continuous_action_space))
 
         start = perf_counter()
 
@@ -51,7 +54,7 @@ def main() -> None:
             )
             action, params = SelfPlay.select_action(root, 0)
 
-            observation, reward, done = game.step(action, params)
+            observation, reward, done = game.step(action, 1 / (1 + np.exp(-params)))
 
             game_history.store_search_statistics(root, config.discrete_action_space)
 
@@ -59,6 +62,7 @@ def main() -> None:
             game_history.action_history.append(action)
             game_history.observation_history.append(observation)
             game_history.reward_history.append(reward)
+            game_history.param_history.append(1 / (1 + np.exp(-params)))
 
         end = perf_counter()
 
@@ -66,7 +70,7 @@ def main() -> None:
 
         logging.info(
             f"EVAL | {game.dataset[game.selected_idx].stem} | {"SOLVED" if reward >= 1 else "UNSOLVED"} ({total_time:.2f}s)\n"
-            f"TACTICS: {[game.tactics[a] for a in game_history.action_history[1:]]}\n\n"
+            f"TACTICS: {[str(TACTICS[a]) + " (" + str(p) + ")"  for a, p in zip(game_history.action_history[1:], game_history.param_history[1:])]}\n\n"
         )
 
 
