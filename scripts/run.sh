@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
         
+#SBATCH --job-name=muzero_smt
+#SBATCH --output=%x_%j.out
+#SBATCH --error=%x_%j.err
+
 #SBATCH --nodes=1    
 #SBATCH --ntasks=1                     
 #SBATCH --cpus-per-task=32
