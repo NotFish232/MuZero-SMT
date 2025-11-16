@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from time import perf_counter
 
 import torch as T
@@ -7,7 +8,9 @@ from tqdm import tqdm  # type: ignore
 from mu_zero_smt.environments.smt.smt import Game as SMTGame
 from mu_zero_smt.self_play import MCTS, GameHistory, SelfPlay
 
-CHECKPOINT = "results/smt/2025-11-01--22-29-26/model.checkpoint"
+CHECKPOINT = (
+    f"{next(f for f in Path("results/smt").rglob("*") if f.is_dir())}/model.checkpoint"
+)
 
 
 @T.no_grad()

@@ -107,19 +107,10 @@ def sample_continuous_params(
     Returns:
         T.Tensor: The values in [0, 1] for each continuous parameter
     """
-    continuous_distribution = (
-        policy_logits[0, -2 * continuous_action_space :]
-        .detach()
-        .reshape(1, -1, 2)
-        .repeat(num_continuous_samples, 1, 1)
-    )
 
-    # Sample values for continuous parameters based on prediction
-    continuous_params = T.normal(
-        continuous_distribution[:, :, 0], continuous_distribution[:, :, 1]
-    )
+    means = policy_logits[0, -continuous_action_space::2]
 
-    return continuous_params
+    return means + T.randn(num_continuous_samples, continuous_action_space)
 
 
 def one_hot_encode(x: T.Tensor, n: int) -> T.Tensor:

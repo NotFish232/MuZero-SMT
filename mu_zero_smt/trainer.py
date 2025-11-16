@@ -320,8 +320,6 @@ class Trainer:
 
         # If we have continuous parameters add it to the policy loss
         if params.numel() != 0:
-            policy_loss += F.gaussian_nll_loss(
-                params[:, 0], target_params, params[:, 1]
-            )
+            policy_loss += F.gaussian_nll_loss(params[:, 0], target_params, 1.0)
 
         return value_loss, reward_loss, policy_loss

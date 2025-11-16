@@ -147,7 +147,7 @@ class SelfPlay:
                 action, params = self.select_action(root, temperature)
 
                 observation, reward, done = self.game.step(
-                    action, 1 / (1 + np.exp(params))
+                    action, 1 / (1 + np.exp(-params))
                 )
 
                 if render_game:
@@ -158,9 +158,14 @@ class SelfPlay:
                     root, self.config.discrete_action_space
                 )
 
+                weighted_param = np.sum(
+                    [param * n.visit_count for n, param in root.children[action]],
+                    axis=0,
+                ) / sum(n.visit_count for n, _ in root.children[action])
+
                 # Next batch
                 game_history.action_history.append(action)
-                game_history.param_history.append(params)
+                game_history.param_history.append(weighted_param)
                 game_history.observation_history.append(observation)
                 game_history.reward_history.append(reward)
 
@@ -333,7 +338,7 @@ class MCTS:
                 continuous_params,
             )
 
-            # Propagate up teh search path with the value received
+            # Propagate up the search path with the value received
             self.backpropagate(search_path, value, min_max_stats)
 
         return root

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
         
-#SBATCH --job-name=muzero_smt
+#SBATCH --job-name=muzero_smt_train
 #SBATCH --output=%x_%j.out
 #SBATCH --error=%x_%j.err
 
@@ -14,4 +14,4 @@
 
 source venv/bin/activate
 
-python train.py
+python -u train.py

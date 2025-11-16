@@ -1,7 +1,6 @@
 import math
 
 import torch as T
-from torch.nn import functional as F
 from typing_extensions import Self, override
 
 from mu_zero_smt.utils.config import MuZeroConfig
@@ -86,7 +85,7 @@ class FTCNetwork(MuZeroNetwork):
         self.prediction_policy_network = mlp(
             self.encoded_state_size,
             fc_policy_layers,
-            self.discrete_action_size + 2 * continuous_action_size,
+            self.discrete_action_size + continuous_action_size,
         )
 
         # Prediction value network
@@ -95,6 +94,8 @@ class FTCNetwork(MuZeroNetwork):
         self.prediction_value_network = mlp(
             self.encoded_state_size, fc_value_layers, self.full_support_size
         )
+
+        self.prediction_policy_network.children
 
     def prediction(self: Self, encoded_state: T.Tensor) -> tuple[T.Tensor, T.Tensor]:
         """
@@ -110,12 +111,6 @@ class FTCNetwork(MuZeroNetwork):
         # encoded_state: (batch size, encoded state size)
 
         policy_logits = self.prediction_policy_network(encoded_state)
-
-        # make continuous standard deviations positive
-        mask = T.zeros_like(policy_logits, dtype=T.bool)
-        mask[:, self.discrete_action_size + 1 :: 2] = True
-
-        policy_logits = T.where(mask, F.softplus(policy_logits), policy_logits)
 
         value = self.prediction_value_network(encoded_state)
 

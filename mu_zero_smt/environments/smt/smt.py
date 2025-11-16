@@ -120,7 +120,7 @@ class Game(AbstractGame):
             continuous_action_space=1,
             stacked_observations=0,  # Number of previous observations and previous actions to add to the current observation
             ### Self-Play
-            num_workers=5,  # Number of simultaneous threads/workers self-playing to feed the replay buffer
+            num_workers=1,  # Number of simultaneous threads/workers self-playing to feed the replay buffer
             selfplay_on_gpu=False,
             max_moves=MAX_NUM_TACTICS,  # Maximum number of moves if game is not finished before
             num_simulations=100,  # Number of future moves self-simulated
@@ -178,7 +178,9 @@ class Game(AbstractGame):
         )
 
     def __init__(self: Self, seed: int | None = None, test_mode: bool = False) -> None:
-        self.dataset = SMTDataset("QF_NIA/CInteger", "train", TRAIN_TEST_SPLIT)
+        self.dataset = SMTDataset(
+            "QF_NIA/CInteger", "test" if test_mode else "train", TRAIN_TEST_SPLIT
+        )
 
         self.probes = [z3.Probe(p) for p in PROBES]
         self.tactics = [z3.Tactic(t) for t in TACTICS]
