@@ -1,10 +1,10 @@
-venv/
+venv
 *.pyc
 .mypy_cache/
 .direnv/
 .envrc
 
-data/
+data
 results/
 notes.txt
 information.log

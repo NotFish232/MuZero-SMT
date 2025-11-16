@@ -12,6 +12,6 @@
 #SBATCH --time=1-00:00:00     
 
 
-source ~/venv/bin/activate
+source venv/bin/activate
 
 python train.py
