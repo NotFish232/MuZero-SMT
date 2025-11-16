@@ -148,7 +148,7 @@ class Game(AbstractGame):
             fc_value_layers=[16],  # Define the hidden layers in the value network
             fc_policy_layers=[16, 16],  # Define the hidden layers in the policy network
             ### Training
-            results_path=pathlib.Path(__file__).resolve().parents[2]
+            results_path=pathlib.Path(__file__).resolve().parents[3]
             / "results"
             / pathlib.Path(__file__).stem
             / datetime.datetime.now().strftime(
