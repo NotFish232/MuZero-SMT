@@ -158,14 +158,9 @@ class SelfPlay:
                     root, self.config.discrete_action_space
                 )
 
-                weighted_param = np.sum(
-                    [param * n.visit_count for n, param in root.children[action]],
-                    axis=0,
-                ) / sum(n.visit_count for n, _ in root.children[action])
-
                 # Next batch
                 game_history.action_history.append(action)
-                game_history.param_history.append(weighted_param)
+                game_history.param_history.append(params)
                 game_history.observation_history.append(observation)
                 game_history.reward_history.append(reward)
 
@@ -182,14 +177,14 @@ class SelfPlay:
         in the config.
         """
 
-        parameterized_actions = [
-            (action, params)
-            for action, lst in node.children.items()
-            for _, params in lst
-        ]
-        visit_counts = np.array(
-            [n.visit_count for lst in node.children.values() for n, _ in lst]
-        )
+        actions = []
+        l_visit_counts = []
+
+        for action, lst in node.children.items():
+            actions.append(action)
+            l_visit_counts.append(sum(n.visit_count for n, _ in lst))
+
+        visit_counts = np.array(l_visit_counts)
 
         if temperature == 0:
             # Greedly select the best action
@@ -210,9 +205,12 @@ class SelfPlay:
                 range(len(visit_counts)), p=visit_count_distribution
             )
 
-        action, t_params = parameterized_actions[choice]
-
-        params = t_params.cpu().detach().numpy()
+        action = actions[choice]
+        # Weight params by visit count to form our param policy
+        params = np.sum(
+            [param * n.visit_count for n, param in node.children[action]],
+            axis=0,
+        ) / sum(n.visit_count for n, _ in node.children[action])
 
         return action, params
 
@@ -358,32 +356,25 @@ class MCTS:
         """
 
         # Find the child with the maximum PUCT score
-        puct_scores = [
-            self.puct_score(node, n, min_max_stats)
-            for lst in node.children.values()
-            for n, _ in lst
-        ]
+        node_action_tuples = []
+        puct_scores = []
+
+        for action, lst in node.children.items():
+            for child, params in lst:
+                node_action_tuples.append((child, action, params))
+                puct_scores.append(self.puct_score(node, child, min_max_stats))
 
         max_puct_score = max(puct_scores)
 
         # Only selecting the first introduces bias that is actually noticable for performance
         # Break this bias by selecting a random choice
-        node, action, params = random.choice(
+        return random.choice(
             [
                 tup
-                for tup, puct_score in zip(
-                    (
-                        (n, a, params)
-                        for a, lst in node.children.items()
-                        for n, params in lst
-                    ),
-                    puct_scores,
-                )
+                for tup, puct_score in zip(node_action_tuples, puct_scores)
                 if puct_score == max_puct_score
             ]
         )
-
-        return node, action, params
 
     def puct_score(
         self: Self, parent: "MCTSNode", child: "MCTSNode", min_max_stats: "MinMaxStats"
@@ -558,11 +549,7 @@ class GameHistory:
             )
             self.child_visits.append(
                 [
-                    (
-                        sum(n.visit_count for n, _ in root.children[a]) / sum_visits
-                        if a in root.children
-                        else 0
-                    )
+                    sum(n.visit_count for n, _ in root.children[a]) / sum_visits
                     for a in range(action_space)
                 ]
             )

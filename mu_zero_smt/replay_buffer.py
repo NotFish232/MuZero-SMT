@@ -111,6 +111,7 @@ class ReplayBuffer:
         shared_storage.set_info.remote("num_played_games", self.num_played_games)
         shared_storage.set_info.remote("num_played_steps", self.num_played_steps)
 
+    @ray.method
     def get_buffer(self: Self) -> dict[int, ReplayBufferEntry]:
         return self.buffer
 
@@ -151,7 +152,6 @@ class ReplayBuffer:
             values, rewards, policies, actions, params = self.make_target(
                 entry, game_pos
             )
-
             index_batch.append([buffer_id, game_pos])
             observation_batch.append(
                 entry.game_history.get_stacked_observations(

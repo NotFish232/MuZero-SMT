@@ -316,20 +316,6 @@ class MuZero:
 
         self.terminate_workers()
 
-        if self.config.save_model:
-            # Persist replay buffer to disk
-            path = self.config.results_path / "replay_buffer.pkl"
-            print(f"\n\nPersisting replay buffer games to disk at {path}")
-            pickle.dump(
-                {
-                    "buffer": self.replay_buffer,
-                    "num_played_games": self.checkpoint["num_played_games"],
-                    "num_played_steps": self.checkpoint["num_played_steps"],
-                    "num_reanalysed_games": self.checkpoint["num_reanalysed_games"],
-                },
-                open(path, "wb"),
-            )
-
     def terminate_workers(self):
         """
         Softly terminate the running tasks and garbage collect the workers.
