@@ -8,6 +8,7 @@ tensorboard
 torch
 z3-solver
 zstandard
+tqdm
 
 black
 isort
