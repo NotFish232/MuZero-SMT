@@ -120,7 +120,7 @@ class Game(AbstractGame):
             continuous_action_space=1,
             stacked_observations=0,  # Number of previous observations and previous actions to add to the current observation
             ### Self-Play
-            num_workers=16,  # Number of simultaneous threads/workers self-playing to feed the replay buffer
+            num_workers=4,  # Number of simultaneous threads/workers self-playing to feed the replay buffer
             selfplay_on_gpu=False,
             max_moves=MAX_NUM_TACTICS,  # Maximum number of moves if game is not finished before
             num_simulations=100,  # Number of future moves self-simulated
@@ -136,7 +136,7 @@ class Game(AbstractGame):
             network=FTCNetwork,
             support_size=10,  # Value and reward are scaled (with almost sqrt) and encoded on a vector with a range of -support_size to support_size. Choose it so that support_size <= sqrt(max(abs(discounted reward)))
             # Fully Connected Network
-            encoding_size=8,
+            encoding_size=12,
             fc_representation_layers=[
                 16
             ],  # Define the hidden layers in the representation network
