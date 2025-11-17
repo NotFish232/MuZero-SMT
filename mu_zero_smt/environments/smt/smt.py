@@ -155,7 +155,7 @@ class Game(AbstractGame):
                 "%Y-%m-%d--%H-%M-%S"
             ),  # Path to store the model weights and TensorBoard logs
             save_model=True,  # Save the checkpoint in results_path as model.checkpoint
-            training_steps=100_000,  # Total number of training steps (ie weights update according to a batch)
+            training_steps=1_000_000,  # Total number of training steps (ie weights update according to a batch)
             batch_size=32,  # Number of parts of games to train on at each training step
             checkpoint_interval=5_000,  # Number of training steps before using the model for self-playing
             value_loss_weight=1,  # Scale the value loss to avoid overfitting of the value function, paper recommends 0.25 (See paper appendix Reanalyze)
