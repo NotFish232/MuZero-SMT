@@ -120,7 +120,7 @@ class Game(AbstractGame):
             continuous_action_space=1,
             stacked_observations=0,  # Number of previous observations and previous actions to add to the current observation
             ### Self-Play
-            num_workers=1,  # Number of simultaneous threads/workers self-playing to feed the replay buffer
+            num_workers=4,  # Number of simultaneous threads/workers self-playing to feed the replay buffer
             selfplay_on_gpu=False,
             max_moves=MAX_NUM_TACTICS,  # Maximum number of moves if game is not finished before
             num_simulations=500,  # Number of future moves self-simulated
