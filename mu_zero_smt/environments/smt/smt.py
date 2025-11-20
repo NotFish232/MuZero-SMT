@@ -155,9 +155,9 @@ class Game(AbstractGame):
                 "%Y-%m-%d--%H-%M-%S"
             ),  # Path to store the model weights and TensorBoard logs
             save_model=True,  # Save the checkpoint in results_path as model.checkpoint
-            training_steps=1_000_000,  # Total number of training steps (ie weights update according to a batch)
+            training_steps=200_000,  # Total number of training steps (ie weights update according to a batch)
             batch_size=32,  # Number of parts of games to train on at each training step
-            checkpoint_interval=5_000,  # Number of training steps before using the model for self-playing
+            checkpoint_interval=1_000,  # Number of training steps before using the model for self-playing
             value_loss_weight=1,  # Scale the value loss to avoid overfitting of the value function, paper recommends 0.25 (See paper appendix Reanalyze)
             train_on_gpu=torch.cuda.is_available(),  # Train on GPU if available
             weight_decay=1e-4,  # L2 weights regularization
@@ -172,7 +172,7 @@ class Game(AbstractGame):
             priority_alpha=0.5,  # How much prioritization is used, 0 corresponding to the uniform case, paper suggests 1
             ### Adjust the self play / training ratio to avoid over/underfitting
             self_play_delay=0,  # Number of seconds to wait after each played game
-            training_delay=1,  # Number of seconds to wait after each training step
+            training_delay=0.5,  # Number of seconds to wait after each training step
             ratio=None,  # Desired training steps per self played step ratio. Equivalent to a synchronous version, training can take much longer. Set it to None to disable it
             visit_softmax_temperature_fn=visit_softmax_temperature_fn,
         )

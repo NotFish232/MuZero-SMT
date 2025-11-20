@@ -9,6 +9,7 @@ torch
 z3-solver
 zstandard
 tqdm
+natsort
 
 black
 isort
