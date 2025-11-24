@@ -273,7 +273,7 @@ class MuZero:
                     counter,
                 )
                 writer.add_scalar(
-                    "1.Total_reweard/4.Percent_Solved",
+                    "1.Total_reward/4.Percent_Solved",
                     (
                         (
                             sum(
