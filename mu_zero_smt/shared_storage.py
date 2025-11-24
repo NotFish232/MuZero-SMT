@@ -44,5 +44,11 @@ class SharedStorage:
         self.current_checkpoint[key] = value
 
     @ray.method
+    def update_info(self: Self, key: str, value: Any) -> None:
+        if key not in self.current_checkpoint:
+            self.current_checkpoint[key] = []
+        self.current_checkpoint[key].append(value)
+
+    @ray.method
     def set_info_batch(self: Self, key_and_values: dict[str, Any]) -> None:
         self.current_checkpoint.update(key_and_values)

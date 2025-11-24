@@ -17,7 +17,7 @@ CHECKPOINT = (
 
 @T.no_grad()
 def main() -> None:
-    game = SMTGame(test_mode=True)
+    game = SMTGame(mode="test")
 
     config = SMTGame.get_config()
 

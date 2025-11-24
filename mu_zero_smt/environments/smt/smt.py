@@ -1,13 +1,13 @@
-import datetime
 import logging
-import pathlib
 import random
+from datetime import datetime
+from pathlib import Path
 from time import perf_counter
 
 import numpy as np
 import torch
 import z3  # type: ignore
-from typing_extensions import Self, override
+from typing_extensions import Any, Self, override
 
 from mu_zero_smt.models import FTCNetwork
 
@@ -24,7 +24,7 @@ logging.basicConfig(
 
 SOLVING_TIMEOUT = 60
 
-MAX_NUM_TACTICS = 25
+MAX_NUM_TACTICS = 10
 
 
 TACTICS = [
@@ -63,7 +63,7 @@ PROBES = [
 ]
 
 
-TRAIN_TEST_SPLIT = {"train": 0.1, "test": 0.9}
+TRAIN_TEST_SPLIT = {"train": 0.1, "eval": 0.1, "test": 0.8}
 
 
 def create_probe_embedding(
@@ -148,16 +148,14 @@ class Game(AbstractGame):
             fc_value_layers=[16],  # Define the hidden layers in the value network
             fc_policy_layers=[16, 16],  # Define the hidden layers in the policy network
             ### Training
-            results_path=pathlib.Path(__file__).resolve().parents[3]
+            results_path=Path(__file__).resolve().parents[3]
             / "results"
-            / pathlib.Path(__file__).stem
-            / datetime.datetime.now().strftime(
-                "%Y-%m-%d--%H-%M-%S"
-            ),  # Path to store the model weights and TensorBoard logs
-            save_model=True,  # Save the checkpoint in results_path as model.checkpoint
+            / Path(__file__).stem
+            / datetime.now().strftime("%Y-%m-%d--%H-%M-%S"),
+            # Path to store the model weights and TensorBoard logs
             training_steps=200_000,  # Total number of training steps (ie weights update according to a batch)
             batch_size=32,  # Number of parts of games to train on at each training step
-            checkpoint_interval=1_000,  # Number of training steps before using the model for self-playing
+            checkpoint_interval=100,  # Number of training steps before using the model for self-playing
             value_loss_weight=1,  # Scale the value loss to avoid overfitting of the value function, paper recommends 0.25 (See paper appendix Reanalyze)
             train_on_gpu=torch.cuda.is_available(),  # Train on GPU if available
             weight_decay=1e-4,  # L2 weights regularization
@@ -177,19 +175,17 @@ class Game(AbstractGame):
             visit_softmax_temperature_fn=visit_softmax_temperature_fn,
         )
 
-    def __init__(self: Self, seed: int | None = None, test_mode: bool = False) -> None:
-        self.dataset = SMTDataset(
-            "QF_NIA/CInteger", "test" if test_mode else "train", TRAIN_TEST_SPLIT
-        )
+    def __init__(self: Self, seed: int | None = None, mode: str = "train") -> None:
+        self.mode = mode
+        self.dataset = SMTDataset("QF_NIA/CInteger", self.mode, TRAIN_TEST_SPLIT)
 
         self.probes = [z3.Probe(p) for p in PROBES]
         self.tactics = [z3.Tactic(t) for t in TACTICS]
 
         self.current_goal: z3.Goal = z3.Goal()
         self.time_spent = 0.0
-        self.num_tactics_applied = 0
+        self.tactics_applied: list[tuple[str, np.ndarray]] = []
 
-        self.test_mode = test_mode
         self.selected_idx = -1
 
         random.seed(seed)
@@ -199,6 +195,7 @@ class Game(AbstractGame):
             self.current_goal, self.probes, self.time_spent
         ).reshape(1, 1, -1)
 
+    @override
     def step(
         self: Self, action: int, params: np.ndarray
     ) -> tuple[np.ndarray, float, bool]:
@@ -215,25 +212,21 @@ class Game(AbstractGame):
         timeout = params[0]
 
         current_file = self.dataset[self.selected_idx]
-        tactic = self.tactics[action]
 
         reward = 0.0
         done = False
 
-        self.num_tactics_applied += 1
+        self.tactics_applied.append((TACTICS[action], params))
 
         acc_tactic = z3.TryFor(
-            tactic, int(timeout * (SOLVING_TIMEOUT - self.time_spent) * 1_000)
+            self.tactics[action],
+            int(timeout * (SOLVING_TIMEOUT - self.time_spent) * 1_000),
         )
 
+        start = perf_counter()
+
         try:
-            start = perf_counter()
-
             sub_goals = acc_tactic(self.current_goal)
-
-            end = perf_counter()
-
-            self.time_spent += end - start
 
             if len(sub_goals) != 1:
                 raise Exception(
@@ -253,42 +246,40 @@ class Game(AbstractGame):
                 logging.info(
                     f"{current_file.stem} | Found SAT / UNSAT ({self.time_spent:.3f}s)"
                 )
-            elif self.num_tactics_applied >= MAX_NUM_TACTICS:
-                reward = -1
-                done = True
-
-                logging.info(f"{current_file.stem} | TERM - Ran max number tactics")
 
         except z3.Z3Exception as e:
             msg = e.args[0].decode()
 
             if msg == "canceled":
-                end = perf_counter()
-
-                self.time_spent += end - start
-
                 logging.info(
                     f'{current_file.stem} | Tactic "{TACTICS[action]}" ({timeout:.2f}) timed out'
                 )
 
-                if self.time_spent > SOLVING_TIMEOUT:
-                    done = True
-                    reward = -1
-
-                    logging.info(f"{current_file.stem} | TERM - Timing out")
-            elif self.num_tactics_applied >= MAX_NUM_TACTICS:
-                reward = -1
-                done = True
-
-                logging.info(f"{current_file.stem} | TERM - Ran max number tactics")
             else:
                 reward = -0.1
                 logging.info(
                     f'{current_file.stem} | Error encountered running tactic "{TACTICS[action]}", {e}'
                 )
 
+        finally:
+            end = perf_counter()
+
+            self.time_spent += end - start
+
+            if self.time_spent > SOLVING_TIMEOUT:
+                reward = -1
+                done = True
+
+                logging.info(f"{current_file.stem} | TERM - Timing out")
+            elif len(self.tactics_applied) >= MAX_NUM_TACTICS:
+                reward = -1
+                done = True
+
+                logging.info(f"{current_file.stem} | TERM - Ran max number tactics")
+
         return self._get_observation(), reward, done
 
+    @override
     def reset(self: Self) -> np.ndarray:
         """
         Reset the game for a new game.
@@ -298,7 +289,7 @@ class Game(AbstractGame):
         """
 
         # Run each benchmark sequentially in test mode
-        if self.test_mode:
+        if self.mode in ["test", "eval"]:
             self.selected_idx += 1
         else:
             self.selected_idx = random.randint(0, len(self.dataset) - 1)
@@ -307,25 +298,27 @@ class Game(AbstractGame):
         self.current_goal.add(z3.parse_smt2_file(str(self.dataset[self.selected_idx])))
 
         self.time_spent = 0.0
-        self.num_tactics_applied = 0
+        self.tactics_applied = []
 
         return self._get_observation()
 
-    def render(self):
-        """
-        Display the game observation.
-        """
-        print(self.current_goal)
-        input("Press enter to take a step ")
+    @override
+    def task_stats(self: Self) -> dict[str, Any]:
+        result = ""
 
-    def action_to_string(self, action_number):
-        """
-        Convert an action number to a string representing the action.
+        if len(self.current_goal) == 0:
+            result = "SAT"
+        elif self.current_goal.inconsistent():
+            result = "UNSAT"
+        elif self.time_spent > SOLVING_TIMEOUT:
+            result = "TIMEOUT"
+        elif len(self.tactics_applied) >= MAX_NUM_TACTICS:
+            result = "MAX_NUM_TACTICS"
 
-        Args:
-            action_number: an integer from the action space.
-
-        Returns:
-            String representing the action.
-        """
-        return ""
+        return {
+            "id": self.dataset.idxs[self.selected_idx],
+            "name": self.dataset[self.selected_idx].name,
+            "tactic_history": self.tactics_applied,
+            "time": self.time_spent,
+            "result": result,
+        }

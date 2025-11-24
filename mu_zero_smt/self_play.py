@@ -66,16 +66,17 @@ class SelfPlay:
                     self.config.visit_softmax_temperature_fn(
                         self.config,
                         ray.get(shared_storage.get_info.remote("training_step")),
-                    ),
-                    False,
+                    )
                 )
+
+                shared_storage.update_info.remote("env_history", self.game.task_stats())
 
                 if replay_buffer is not None:
                     replay_buffer.save_game.remote(game_history, shared_storage)
 
             else:
                 # Take the best action (no exploration) in test mode
-                game_history = self.play_game(0, False)
+                game_history = self.play_game(0)
 
                 # Save to the shared storage
                 shared_storage.set_info_batch.remote(
@@ -106,7 +107,7 @@ class SelfPlay:
 
         self.close_game()
 
-    def play_game(self: Self, temperature, render_game: bool) -> "GameHistory":
+    def play_game(self: Self, temperature) -> "GameHistory":
         """
         Play one game with actions based on the Monte Carlo tree search at each moves.
         """
@@ -123,10 +124,6 @@ class SelfPlay:
         game_history.reward_history.append(0)
 
         done = False
-
-        if render_game:
-            self.game.render()
-
         with T.no_grad():
             while (
                 not done and len(game_history.action_history) <= self.config.max_moves
@@ -149,10 +146,6 @@ class SelfPlay:
                 observation, reward, done = self.game.step(
                     action, 1 / (1 + np.exp(-params))
                 )
-
-                if render_game:
-                    print(f"Played action: {self.game.action_to_string(action)}")
-                    self.game.render()
 
                 game_history.store_search_statistics(
                     root, self.config.discrete_action_space

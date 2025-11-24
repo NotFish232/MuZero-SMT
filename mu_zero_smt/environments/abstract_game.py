@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 
 import numpy as np
-from typing_extensions import Self
+from typing_extensions import Any, Self
 
 from mu_zero_smt.utils.config import MuZeroConfig
 
@@ -46,26 +46,13 @@ class AbstractGame(ABC):
             Initial observation of the game.
         """
 
+    @abstractmethod
+    def task_stats(self: Self) -> dict[str, Any]:
+        """
+        A dcitionary representing arbitray stats of the previously run task
+        """
+
     def close(self: Self) -> None:
         """
         Properly close the game.
         """
-
-    @abstractmethod
-    def render(self: Self) -> None:
-        """
-        Display the game observation.
-        """
-
-    def action_to_string(self: Self, action: int) -> str:
-        """
-        Convert an action number to a string representing the action.
-
-        Args:
-            action_number: an integer from the action space.
-
-        Returns:
-            String representing the action.
-        """
-
-        return str(action)

@@ -105,6 +105,7 @@ class MuZero:
             "num_played_steps": 0,
             "num_reanalysed_games": 0,
             "terminate": False,
+            "env_history": [],
         }
 
         self.replay_buffer: dict[int, GameHistory] = {}
@@ -112,7 +113,6 @@ class MuZero:
         model = self.config.network.from_config(self.config)
 
         self.checkpoint["weights"] = dict_to_cpu(model.state_dict())
-        self.summary = str(model)
 
     def train(self: Self, log_in_tensorboard: bool = True) -> None:
         """
@@ -121,8 +121,7 @@ class MuZero:
         Args:
             log_in_tensorboard (bool): Start a testing worker and log its performance in TensorBoard.
         """
-        if log_in_tensorboard or self.config.save_model:
-            self.config.results_path.mkdir(parents=True, exist_ok=True)
+        self.config.results_path.mkdir(parents=True, exist_ok=True)
 
         # Manage GPUs
         if 0 < self.num_gpus:
@@ -237,11 +236,6 @@ class MuZero:
             "Hyperparameters",
             "| Parameter | Value |\n|-------|-------|\n" + "\n".join(hp_table),
         )
-        # Save model representation
-        writer.add_text(
-            "Model summary",
-            self.summary,
-        )
         # Loop for updating the training performance
         counter = 0
         keys = [
@@ -257,6 +251,7 @@ class MuZero:
             "num_played_games",
             "num_played_steps",
             "num_reanalysed_games",
+            "env_history",
         ]
         info = ray.get(self.shared_storage_worker.get_info_batch.remote(keys))
         try:
@@ -275,6 +270,21 @@ class MuZero:
                 writer.add_scalar(
                     "1.Total_reward/3.Episode_length",
                     info["episode_length"],
+                    counter,
+                )
+                writer.add_scalar(
+                    "1.Total_reweard/4.Percent_Solved",
+                    (
+                        (
+                            sum(
+                                x["result"] in ["SAT", "UNSAT"]
+                                for x in info["env_history"]
+                            )
+                            / len(info["env_history"])
+                        )
+                        if len(info["env_history"]) > 0
+                        else 0
+                    ),
                     counter,
                 )
                 writer.add_scalar(
@@ -336,52 +346,6 @@ class MuZero:
         self.reanalyse_worker = None
         self.replay_buffer_worker = None
         self.shared_storage_worker = None
-
-    def test(
-        self, render=True, opponent=None, muzero_player=None, num_tests=1, num_gpus=0
-    ):
-        """
-        Test the model in a dedicated thread.
-
-        Args:
-            render (bool): To display or not the environment. Defaults to True.
-
-            opponent (str): "self" for self-play, "human" for playing against MuZero and "random"
-            for a random agent, None will use the opponent in the config. Defaults to None.
-
-            muzero_player (int): Player number of MuZero in case of multiplayer
-            games, None let MuZero play all players turn by turn, None will use muzero_player in
-            the config. Defaults to None.
-
-            num_tests (int): Number of games to average. Defaults to 1.
-
-            num_gpus (int): Number of GPUs to use, 0 forces to use the CPU. Defaults to 0.
-        """
-        opponent = opponent if opponent else self.config.opponent
-        muzero_player = muzero_player if muzero_player else self.config.muzero_player
-        self_play_worker = SelfPlay.options(
-            num_cpus=0,
-            num_gpus=num_gpus,
-        ).remote(self.checkpoint, self.Game, self.config, numpy.random.randint(10000))
-        results = []
-        for i in range(num_tests):
-            print(f"Testing {i+1}/{num_tests}")
-            results.append(
-                ray.get(
-                    self_play_worker.play_game.remote(
-                        0,
-                        0,
-                        render,
-                        opponent,
-                        muzero_player,
-                    )
-                )
-            )
-        self_play_worker.close_game.remote()
-
-        result = numpy.mean([sum(history.reward_history) for history in results])
-
-        return result
 
     def load_model(self, checkpoint_path=None, replay_buffer_path=None):
         """

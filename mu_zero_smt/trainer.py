@@ -95,26 +95,27 @@ class Trainer:
                         ),
                     }
                 )
-                if self.config.save_model:
-                    shared_storage.save_checkpoint.remote()
 
-                    path = self.config.results_path / "replay_buffer.pkl"
+                # Save model weights
+                shared_storage.save_checkpoint.remote()
 
-                    pickle.dump(
-                        {
-                            "buffer": ray.get(replay_buffer.get_buffer.remote()),
-                            "num_played_games": ray.get(
-                                shared_storage.get_info.remote("num_played_games")
-                            ),
-                            "num_played_steps": ray.get(
-                                shared_storage.get_info.remote("num_played_steps")
-                            ),
-                            "num_reanalysed_games": ray.get(
-                                shared_storage.get_info.remote("num_reanalysed_games")
-                            ),
-                        },
-                        open(path, "wb"),
-                    )
+                # Save replay buffer
+                replay_buffer_path = self.config.results_path / "replay_buffer.pkl"
+                pickle.dump(
+                    {
+                        "buffer": ray.get(replay_buffer.get_buffer.remote()),
+                        "num_played_games": ray.get(
+                            shared_storage.get_info.remote("num_played_games")
+                        ),
+                        "num_played_steps": ray.get(
+                            shared_storage.get_info.remote("num_played_steps")
+                        ),
+                        "num_reanalysed_games": ray.get(
+                            shared_storage.get_info.remote("num_reanalysed_games")
+                        ),
+                    },
+                    open(replay_buffer_path, "wb"),
+                )
 
             shared_storage.set_info_batch.remote(
                 {

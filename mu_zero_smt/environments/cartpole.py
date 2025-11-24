@@ -88,7 +88,6 @@ class Game(AbstractGame):
             / datetime.datetime.now().strftime(
                 "%Y-%m-%d--%H-%M-%S"
             ),  # Path to store the model weights and TensorBoard logs
-            save_model=True,  # Save the checkpoint in results_path as model.checkpoint
             training_steps=10000,  # Total number of training steps (ie weights update according to a batch)
             batch_size=128,  # Number of parts of games to train on at each training step
             checkpoint_interval=10,  # Number of training steps before using the model for self-playing
