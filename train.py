@@ -86,7 +86,11 @@ class MuZero:
         if 1 < self.num_gpus:
             self.num_gpus = math.floor(self.num_gpus)
 
-        ray.init(num_gpus=total_gpus)
+        ray.init(
+            num_cpus=2 * self.config.num_self_play_workers
+            + self.config.num_validate_workers
+            + 3
+        )
 
         # Checkpoint and replay buffer used to initialize workers
         self.checkpoint: dict[str, Any] = {
@@ -135,30 +139,52 @@ class MuZero:
             num_gpus_per_worker = 0
 
         # Initialize workers
-        self.training_worker = ray.remote(Trainer).remote(self.checkpoint, self.config)
-
-        self.shared_storage_worker = ray.remote(SharedStorage).remote(
-            self.checkpoint,
-            self.config,
+        self.shared_storage_worker = (
+            ray.remote(SharedStorage)
+            .options(num_cpus=0)
+            .remote(
+                self.checkpoint,
+                self.config,
+            )
         )
         self.shared_storage_worker.set_info.remote("terminate", False)
 
-        self.replay_buffer_worker = ray.remote(ReplayBuffer).remote(
-            self.checkpoint, self.replay_buffer, self.config
+        self.replay_buffer_worker = (
+            ray.remote(ReplayBuffer)
+            .options(num_cpus=0)
+            .remote(self.checkpoint, self.replay_buffer, self.config)
         )
 
-        self.reanalyse_worker = ray.remote(Reanalyse).remote(
-            self.checkpoint, self.config
+        self.reanalyse_worker = (
+            ray.remote(Reanalyse)
+            .options(num_cpus=1)
+            .remote(self.checkpoint, self.config)
+        )
+
+        self.training_worker = (
+            ray.remote(Trainer).options(num_cpus=1).remote(self.checkpoint, self.config)
         )
 
         self.self_play_workers = [
-            ray.remote(SelfPlay).remote(
+            ray.remote(SelfPlay)
+            .options(num_cpus=1)
+            .remote(
                 self.checkpoint,
                 self.config,
                 self.config.seed + seed,
             )
             for seed in range(self.config.num_self_play_workers)
         ]
+
+        self.test_worker = (
+            ray.remote(SelfPlay)
+            .options(num_cpus=1)
+            .remote(
+                self.checkpoint,
+                self.config,
+                self.config.seed + self.config.num_self_play_workers,
+            )
+        )
 
         # Launch workers
         for self_play_worker in self.self_play_workers:
@@ -169,21 +195,16 @@ class MuZero:
                 self.replay_buffer_worker,
             )
 
-        self.test_worker = ray.remote(SelfPlay).remote(
-            self.checkpoint,
-            self.config,
-            self.config.seed + self.config.num_self_play_workers,
-        )
-        self.test_worker.continuous_self_play.remote(
-            self.Game, "eval", self.shared_storage_worker, None
-        )
-
         self.training_worker.continuous_update_weights.remote(
             self.replay_buffer_worker, self.shared_storage_worker
         )
 
         self.reanalyse_worker.reanalyse.remote(
             self.replay_buffer_worker, self.shared_storage_worker
+        )
+
+        self.test_worker.continuous_self_play.remote(
+            self.Game, "eval", self.shared_storage_worker, None
         )
 
         self.logging_loop()
