@@ -80,28 +80,25 @@ class SelfPlay:
             if mode == "train":
                 # Make sure environment is serailizable
                 env.cleanup()
-                game_history, env_stats = ray.get(
-                    SelfPlay.play_game.remote(
-                        env, self.config, self.model, temperature, None
-                    )
+                game_history, env_stats = SelfPlay.play_game(
+                    env, self.config, self.model, temperature
                 )
 
-                shared_storage.update_info.remote("env_history", env_stats)
+                shared_storage.update_info.remote("self_play_results", env_stats)
 
                 if replay_buffer is not None:
                     replay_buffer.save_game.remote(game_history, shared_storage)
             else:
                 tasks = [
-                    SelfPlay.play_game.remote(
-                        env, self.config, self.model, temperature, id
-                    )
+                    ray.remote(SelfPlay.play_game)
+                    .remote(env, self.config, self.model, temperature, id)
                     for id in env.unique_episodes()
                 ]
 
                 results = ray.get(tasks)
 
                 shared_storage.set_info.remote(
-                    "validation_result", [stats for _, stats in results]
+                    "eval_results", [stats for _, stats in results]
                 )
 
             # Managing the self-play / training ratio
@@ -120,13 +117,13 @@ class SelfPlay:
 
         env.close()
 
-    @ray.remote
+    @staticmethod
     def play_game(
         env: AbstractEnvironment,
         config: MuZeroConfig,
         model: MuZeroNetwork,
         temperature: float,
-        env_id: int | None,
+        env_id: int | None = None,
     ) -> tuple["GameHistory", dict[str, Any]]:
         """
         Play one game with actions based on the Monte Carlo tree search at each moves.

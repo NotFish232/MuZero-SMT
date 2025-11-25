@@ -87,7 +87,7 @@ class MuZero:
             self.num_gpus = math.floor(self.num_gpus)
 
         ray.init(
-            num_cpus=2 * self.config.num_self_play_workers
+            num_cpus=self.config.num_self_play_workers
             + self.config.num_validate_workers
             + 3
         )
@@ -96,21 +96,22 @@ class MuZero:
         self.checkpoint: dict[str, Any] = {
             "weights": None,
             "optimizer_state": None,
-            "total_reward": 0,
-            "episode_length": 0,
-            "mean_value": 0,
+            # Metrics
+            "self_play_results": [],
+            "eval_results": [],
             "training_step": 0,
+            # Statistics
+            "num_played_games": 0,
+            "num_played_steps": 0,
+            "num_reanalysed_games": 0,
             "lr": 0,
+            # Loss
             "total_loss": 0,
             "value_loss": 0,
             "reward_loss": 0,
             "policy_loss": 0,
-            "num_played_games": 0,
-            "num_played_steps": 0,
-            "num_reanalysed_games": 0,
+            # Termination condition
             "terminate": False,
-            "env_history": [],
-            "validation_result": [],
         }
 
         self.replay_buffer: dict[int, GameHistory] = {}
@@ -141,7 +142,7 @@ class MuZero:
         # Initialize workers
         self.shared_storage_worker = (
             ray.remote(SharedStorage)
-            .options(num_cpus=0)
+            .options(name="shared_storage_worker", num_cpus=0)
             .remote(
                 self.checkpoint,
                 self.config,
@@ -151,34 +152,36 @@ class MuZero:
 
         self.replay_buffer_worker = (
             ray.remote(ReplayBuffer)
-            .options(num_cpus=0)
+            .options(name="replay_buffer_worker", num_cpus=0)
             .remote(self.checkpoint, self.replay_buffer, self.config)
         )
 
         self.reanalyse_worker = (
             ray.remote(Reanalyse)
-            .options(num_cpus=1)
+            .options(name="reanalyse_worker", num_cpus=1)
             .remote(self.checkpoint, self.config)
         )
 
         self.training_worker = (
-            ray.remote(Trainer).options(num_cpus=1).remote(self.checkpoint, self.config)
+            ray.remote(Trainer)
+            .options(name="trainer_worker", num_cpus=1)
+            .remote(self.checkpoint, self.config)
         )
 
         self.self_play_workers = [
             ray.remote(SelfPlay)
-            .options(num_cpus=1)
+            .options(name=f"self_play_{i + 1}_worker", num_cpus=1)
             .remote(
                 self.checkpoint,
                 self.config,
-                self.config.seed + seed,
+                self.config.seed + i,
             )
-            for seed in range(self.config.num_self_play_workers)
+            for i in range(self.config.num_self_play_workers)
         ]
 
         self.test_worker = (
             ray.remote(SelfPlay)
-            .options(num_cpus=1)
+            .options(name="eval_worker", num_cpus=1)
             .remote(
                 self.checkpoint,
                 self.config,
@@ -217,77 +220,55 @@ class MuZero:
         # Write everything in TensorBoard
         writer = SummaryWriter(self.config.results_path)
 
-        # Save hyperparameters to TensorBoard
-        hp_table = [
-            f"| {key} | {value} |" for key, value in self.config.__dict__.items()
-        ]
-        writer.add_text(
-            "Hyperparameters",
-            "| Parameter | Value |\n|-------|-------|\n" + "\n".join(hp_table),
-        )
         # Loop for updating the training performance
         counter = 0
         keys = [
-            "total_reward",
-            "episode_length",
-            "mean_value",
             "training_step",
+            # Metric
+            "self_play_results",
+            "eval_results",
+            # Stats
+            "num_played_games",
+            "num_played_steps",
+            "num_reanalysed_games",
             "lr",
+            # Loss Metrics
             "total_loss",
             "value_loss",
             "reward_loss",
             "policy_loss",
-            "num_played_games",
-            "num_played_steps",
-            "num_reanalysed_games",
-            "env_history",
-            "validation_result",
         ]
         info = ray.get(self.shared_storage_worker.get_info_batch.remote(keys))
         try:
             while info["training_step"] < self.config.training_steps:
                 info = ray.get(self.shared_storage_worker.get_info_batch.remote(keys))
+
                 writer.add_scalar(
-                    "1.Total_reward/1.Total_reward",
-                    info["total_reward"],
-                    counter,
-                )
-                writer.add_scalar(
-                    "1.Total_reward/2.Mean_value",
-                    info["mean_value"],
-                    counter,
-                )
-                writer.add_scalar(
-                    "1.Total_reward/3.Episode_length",
-                    info["episode_length"],
-                    counter,
-                )
-                writer.add_scalar(
-                    "1.Total_reward/4.Percent_Solved",
+                    "1.Metrics/1.Self_Play_Percent_Solved",
                     (
                         (
                             sum(
                                 x["result"] in ["SAT", "UNSAT"]
-                                for x in info["env_history"]
+                                for x in info["self_play_results"]
                             )
-                            / len(info["env_history"])
+                            / len(info["self_play_results"])
                         )
-                        if len(info["env_history"]) > 0
+                        if len(info["self_play_results"]) > 0
                         else 0
                     ),
                     counter,
                 )
                 writer.add_scalar(
-                    "1.Total_reward/5.Validation_Result",
+                    "1.Metrics/2.Eval_Percent_Solved",
                     (
                         (
                             sum(
                                 x["result"] in ["SAT", "UNSAT"]
-                                for x in info["validation_result"]
+                                for x in info["eval_results"]
                             )
-                            / len(info["validation_result"])
+                            / len(info["eval_results"])
                         )
-                        if len(info["validation_result"]) > 0
+                        if len(info["eval_results"]) > 0
                         else 0
                     ),
                     counter,
@@ -321,11 +302,13 @@ class MuZero:
                 writer.add_scalar("3.Loss/Reward_loss", info["reward_loss"], counter)
                 writer.add_scalar("3.Loss/Policy_loss", info["policy_loss"], counter)
                 print(
-                    f'Last test reward: {info["total_reward"]:.2f}. Training step: {info["training_step"]}/{self.config.training_steps}. Played games: {info["num_played_games"]}. Loss: {info["total_loss"]:.2f}',
+                    f'Training step: {info["training_step"]}/{self.config.training_steps}. Played games: {info["num_played_games"]}. Loss: {info["total_loss"]:.2f}',
                     end="\r",
                 )
                 counter += 1
-                time.sleep(0.5)
+
+                time.sleep(1)
+
         except KeyboardInterrupt:
             pass
 
