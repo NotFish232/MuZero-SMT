@@ -1,5 +1,4 @@
 import importlib
-import math
 import os
 import pathlib
 import pickle
@@ -75,7 +74,7 @@ class MuZero:
             "weights": None,
             "optimizer_state": None,
             # Metrics
-            "num_eval_finished": [],
+            "finished_eval_workers": [],
             "self_play_results": [],
             "eval_results": [],
             "training_step": 0,
@@ -198,7 +197,7 @@ class MuZero:
         keys = [
             "training_step",
             # Metrics
-            "num_eval_finished",
+            "finished_eval_workers",
             "self_play_results",
             "eval_results",
             # Stats
@@ -233,7 +232,7 @@ class MuZero:
                     counter,
                 )
 
-                if len(info["num_eval_finished"]) == self.config.num_eval_workers:
+                if len(info["finished_eval_workers"]) == self.config.num_eval_workers:
                     writer.add_scalar(
                         "1.Metrics/2.Eval_Percent_Solved",
                         (
@@ -248,7 +247,7 @@ class MuZero:
                         counter,
                     )
                     self.shared_storage_worker.set_info_batch.remote(
-                        {"eval_results": [], "num_eval_finished": []}
+                        {"eval_results": [], "finished_eval_workers": []}
                     )
 
                 writer.add_scalar(

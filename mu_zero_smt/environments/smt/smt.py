@@ -4,7 +4,6 @@ from pathlib import Path
 from time import perf_counter
 
 import numpy as np
-import torch
 import z3  # type: ignore
 from typing_extensions import Any, Self, override
 

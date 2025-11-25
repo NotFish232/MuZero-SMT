@@ -33,11 +33,11 @@ class SelfPlay:
         mode: Mode,
         config: MuZeroConfig,
         seed: int,
-        id: int,
+        worker_id: int,
     ) -> None:
         self.config = config
         self.seed = seed
-        self.id = id
+        self.worker_id = worker_id
 
         # Fix random generator seed
         np.random.seed(seed)
@@ -94,20 +94,27 @@ class SelfPlay:
 
                 batch_size = math.ceil(len(ids) / self.config.num_eval_workers)
 
-                batch_start = self.id * batch_size
+                batch_start = self.worker_id * batch_size
                 batch_end = min(batch_start + batch_size, len(ids))
 
-                for i in range(batch_size, batch_end):
+                for i in range(batch_start, batch_end):
                     self.play_game(0, ids[i])
 
                     shared_storage.update_info.remote(
                         "eval_results", self.env.episode_stats()
                     )
-                
-                shared_storage.update_info.remote("num_eval_finished", 1)
+
+                shared_storage.update_info.remote(
+                    "finished_eval_workers", self.worker_id
+                )
 
                 # Wait for all eval actors to finish and the main thread to clear it
-                while len(ray.get(shared_storage.get_info.remote("num_eval_finished"))) != 0:
+                while (
+                    len(
+                        ray.get(shared_storage.get_info.remote("finished_eval_workers"))
+                    )
+                    != 0
+                ):
                     time.sleep(1)
 
             # Managing the self-play / training ratio

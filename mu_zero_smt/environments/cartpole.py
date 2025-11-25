@@ -3,7 +3,6 @@ import pathlib
 
 import gymnasium as gym  # type: ignore
 import numpy
-import torch
 from typing_extensions import Self, override
 
 from mu_zero_smt.models import FTCNetwork
