@@ -4,15 +4,20 @@ import numpy as np
 from typing_extensions import Any, Self
 
 from mu_zero_smt.utils.config import MuZeroConfig
+from mu_zero_smt.utils.utils import Mode
 
 
-class AbstractGame(ABC):
+class AbstractEnvironment(ABC):
     """
     Inherit this class for muzero to play
     """
 
     @abstractmethod
-    def __init__(self: Self, seed: int | None = None) -> None:
+    def __init__(
+        self: Self,
+        mode: Mode,
+        seed: int | None = None,
+    ) -> None:
         pass
 
     @staticmethod
@@ -38,18 +43,29 @@ class AbstractGame(ABC):
         """
 
     @abstractmethod
-    def reset(self: Self) -> np.ndarray:
+    def reset(self: Self, id: int | None = None) -> np.ndarray:
         """
-        Reset the game for a new game.
+        Reset the game for a new game. If id is passed it should be the id of the current game
 
         Returns:
             Initial observation of the game.
         """
 
     @abstractmethod
-    def task_stats(self: Self) -> dict[str, Any]:
+    def unique_episodes(self: Self) -> list[int]:
         """
-        A dcitionary representing arbitray stats of the previously run task
+        A list of ids representing unique episodes
+        """
+
+    @abstractmethod
+    def episode_stats(self: Self) -> dict[str, Any]:
+        """
+        A dictionary representing arbitray stats of the previously run episode in the environment
+        """
+
+    def cleanup(self: Self) -> None:
+        """
+        Cleans up the internal state of the environment so it can be serialized
         """
 
     def close(self: Self) -> None:

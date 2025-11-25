@@ -7,8 +7,10 @@ import torch
 from typing_extensions import Self, override
 
 from mu_zero_smt.models import FTCNetwork
+from mu_zero_smt.utils.config import MuZeroConfig
+from mu_zero_smt.utils.utils import Mode
 
-from .abstract_game import AbstractGame, MuZeroConfig
+from .abstract_environment import AbstractEnvironment
 
 
 def visit_softmax_temperature_fn(self: MuZeroConfig, trained_steps: int) -> float:
@@ -30,12 +32,12 @@ def visit_softmax_temperature_fn(self: MuZeroConfig, trained_steps: int) -> floa
 EPISODE_LENGTH = 1_000
 
 
-class Game(AbstractGame):
+class Game(AbstractEnvironment):
     """
     Game wrapper.
     """
 
-    def __init__(self: Self, seed: int | None = None):
+    def __init__(self: Self, _mode: Mode, seed: int | None = None):
         self.env = gym.make("CartPole-v1", max_episode_steps=EPISODE_LENGTH)
 
         if seed is not None:
@@ -59,8 +61,8 @@ class Game(AbstractGame):
             continuous_action_space=0,
             stacked_observations=0,  # Number of previous observations and previous actions to add to the current observation
             ### Self-Play
-            num_workers=1,  # Number of simultaneous threads/workers self-playing to feed the replay buffer
-            selfplay_on_gpu=False,
+            num_self_play_workers=1,  # Number of simultaneous threads/workers self-playing to feed the replay buffer
+            num_validate_workers=1,
             max_moves=EPISODE_LENGTH,  # Maximum number of moves if game is not finished before
             num_simulations=50,  # Number of future moves self-simulated
             num_continuous_samples=0,
@@ -104,7 +106,6 @@ class Game(AbstractGame):
             td_steps=50,  # Number of steps in the future to take into account for calculating the target value
             priority_alpha=0.5,  # How much prioritization is used, 0 corresponding to the uniform case, paper suggests 1
             ### Adjust the self play / training ratio to avoid over/underfitting
-            self_play_delay=0,  # Number of seconds to wait after each played game
             training_delay=0,  # Number of seconds to wait after each training step
             ratio=1.5,  # Desired training steps per self played step ratio. Equivalent to a synchronous version, training can take much longer. Set it to None to disable it
             visit_softmax_temperature_fn=visit_softmax_temperature_fn,

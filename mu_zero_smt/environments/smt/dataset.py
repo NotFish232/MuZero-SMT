@@ -10,6 +10,8 @@ from torch.utils.data import Dataset
 from tqdm import tqdm  # type: ignore
 from typing_extensions import Self
 
+from mu_zero_smt.utils.utils import Mode
+
 SMT_LIB_RELEASE = "https://zenodo.org/records/16740866"
 
 DATA_DIR = Path(__file__).parents[3] / "data"
@@ -17,7 +19,10 @@ DATA_DIR = Path(__file__).parents[3] / "data"
 
 class SMTDataset(Dataset):
     def __init__(
-        self: Self, benchmark: str, split_name: str, split: dict[str, float]
+        self: Self,
+        benchmark: str,
+        split_name: Mode,
+        split: dict[Mode, float],
     ) -> None:
         """
         Args:
@@ -49,6 +54,9 @@ class SMTDataset(Dataset):
 
         self.split_name = split_name
         self.idxs = self.split_info[self.split_name]
+
+        # Maps from an id (which is the index in the entire benchmark dir to the index in the dataset)
+        self.id_to_idx = {id: idx for idx, id in enumerate(self.idxs)}
 
     def download_logic_benchmark(self: Self, logic: str) -> None:
         """
@@ -98,8 +106,9 @@ class SMTDataset(Dataset):
         tar_desination.unlink()
 
     def create_benchmark_split(
-        self: Self, split: dict[str, float]
-    ) -> dict[str, list[int]]:
+        self: Self,
+        split: dict[Mode, float],
+    ) -> dict[Mode, list[int]]:
         idxs = T.randperm(len(self.benchmark_files))
 
         split_infos = {}

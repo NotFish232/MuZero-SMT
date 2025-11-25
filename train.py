@@ -5,23 +5,23 @@ import pathlib
 import pickle
 import time
 
-import numpy
-import torch
+import numpy as np
+import torch as T
 from torch.utils.tensorboard import SummaryWriter
 from typing_extensions import Any, Self, Type
 
-from mu_zero_smt.environments.abstract_game import AbstractGame
+os.environ["RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO"] = "0"
+os.environ["RAY_DEDUP_LOGS"] = "0"
+
+import ray
+
+from mu_zero_smt.environments.abstract_environment import AbstractEnvironment
 from mu_zero_smt.models import dict_to_cpu
 from mu_zero_smt.replay_buffer import Reanalyse, ReplayBuffer
 from mu_zero_smt.self_play import GameHistory, SelfPlay
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.trainer import Trainer
 from mu_zero_smt.utils.config import MuZeroConfig
-
-os.environ["RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO"] = "0"
-
-
-import ray
 
 
 class MuZero:
@@ -52,7 +52,7 @@ class MuZero:
             game_module = importlib.import_module(
                 f"mu_zero_smt.environments.{game_name}"
             )
-            self.Game: Type[AbstractGame] = game_module.Game
+            self.Game: Type[AbstractEnvironment] = game_module.Game
             self.config: MuZeroConfig = self.Game.get_config()
 
             # Preload the data if its being downloaded so it doesn't happen in each actor
@@ -64,21 +64,21 @@ class MuZero:
             raise err
 
         # Fix random generator seed
-        numpy.random.seed(self.config.seed)
-        torch.manual_seed(self.config.seed)
+        np.random.seed(self.config.seed)
+        T.manual_seed(self.config.seed)
 
         # Manage GPUs
         if self.config.max_num_gpus == 0 and (
-            self.config.selfplay_on_gpu or self.config.train_on_gpu
+            self.config.num_self_play_workers or self.config.train_on_gpu
         ):
             raise ValueError(
                 "Inconsistent MuZeroConfig: max_num_gpus = 0 but GPU requested by selfplay_on_gpu or train_on_gpu or reanalyse_on_gpu."
             )
-        if self.config.selfplay_on_gpu or self.config.train_on_gpu:
+        if self.config.num_self_play_workers or self.config.train_on_gpu:
             total_gpus = (
                 self.config.max_num_gpus
                 if self.config.max_num_gpus is not None
-                else torch.cuda.device_count()
+                else T.cuda.device_count()
             )
         else:
             total_gpus = 0
@@ -106,6 +106,7 @@ class MuZero:
             "num_reanalysed_games": 0,
             "terminate": False,
             "env_history": [],
+            "validation_result": [],
         }
 
         self.replay_buffer: dict[int, GameHistory] = {}
@@ -114,7 +115,7 @@ class MuZero:
 
         self.checkpoint["weights"] = dict_to_cpu(model.state_dict())
 
-    def train(self: Self, log_in_tensorboard: bool = True) -> None:
+    def train(self: Self) -> None:
         """
         Spawn ray workers and launch the training.
 
@@ -126,9 +127,7 @@ class MuZero:
         # Manage GPUs
         if 0 < self.num_gpus:
             num_gpus_per_worker = self.num_gpus / (
-                self.config.train_on_gpu
-                + self.config.num_workers * self.config.selfplay_on_gpu
-                + log_in_tensorboard * self.config.selfplay_on_gpu
+                self.config.train_on_gpu + (self.config.num_self_play_workers + 1)
             )
             if 1 < num_gpus_per_worker:
                 num_gpus_per_worker = math.floor(num_gpus_per_worker)
@@ -136,14 +135,7 @@ class MuZero:
             num_gpus_per_worker = 0
 
         # Initialize workers
-        self.training_worker = (
-            ray.remote(Trainer)
-            .options(
-                num_cpus=0,
-                num_gpus=num_gpus_per_worker if self.config.train_on_gpu else 0,
-            )
-            .remote(self.checkpoint, self.config)
-        )
+        self.training_worker = ray.remote(Trainer).remote(self.checkpoint, self.config)
 
         self.shared_storage_worker = ray.remote(SharedStorage).remote(
             self.checkpoint,
@@ -155,37 +147,37 @@ class MuZero:
             self.checkpoint, self.replay_buffer, self.config
         )
 
-        self.reanalyse_worker = (
-            ray.remote(Reanalyse)
-            .options(
-                num_cpus=0,
-                num_gpus=0,
-            )
-            .remote(self.checkpoint, self.config)
+        self.reanalyse_worker = ray.remote(Reanalyse).remote(
+            self.checkpoint, self.config
         )
 
         self.self_play_workers = [
-            ray.remote(SelfPlay)
-            .options(
-                num_cpus=0,
-                num_gpus=num_gpus_per_worker if self.config.selfplay_on_gpu else 0,
-            )
-            .remote(
+            ray.remote(SelfPlay).remote(
                 self.checkpoint,
-                self.Game,
                 self.config,
                 self.config.seed + seed,
             )
-            for seed in range(self.config.num_workers)
+            for seed in range(self.config.num_self_play_workers)
         ]
 
         # Launch workers
-        [
+        for self_play_worker in self.self_play_workers:
             self_play_worker.continuous_self_play.remote(
-                self.shared_storage_worker, self.replay_buffer_worker, False
+                self.Game,
+                "train",
+                self.shared_storage_worker,
+                self.replay_buffer_worker,
             )
-            for self_play_worker in self.self_play_workers
-        ]
+
+        self.test_worker = ray.remote(SelfPlay).remote(
+            self.checkpoint,
+            self.config,
+            self.config.seed + self.config.num_self_play_workers,
+        )
+        self.test_worker.continuous_self_play.remote(
+            self.Game, "eval", self.shared_storage_worker, None
+        )
+
         self.training_worker.continuous_update_weights.remote(
             self.replay_buffer_worker, self.shared_storage_worker
         )
@@ -194,39 +186,15 @@ class MuZero:
             self.replay_buffer_worker, self.shared_storage_worker
         )
 
-        if log_in_tensorboard:
-            self.logging_loop(
-                num_gpus_per_worker if self.config.selfplay_on_gpu else 0,
-            )
+        self.logging_loop()
 
-    def logging_loop(self, num_gpus) -> None:
+    def logging_loop(self: Self) -> None:
         """
         Keep track of the training performance.
         """
-        # Launch the test worker to get performance metrics
-        self.test_worker = (
-            ray.remote(SelfPlay)
-            .options(
-                num_cpus=0,
-                num_gpus=num_gpus,
-            )
-            .remote(
-                self.checkpoint,
-                self.Game,
-                self.config,
-                self.config.seed + self.config.num_workers,
-            )
-        )
-        self.test_worker.continuous_self_play.remote(
-            self.shared_storage_worker, None, True
-        )
 
         # Write everything in TensorBoard
         writer = SummaryWriter(self.config.results_path)
-
-        print(
-            "\nTraining...\nRun tensorboard --logdir ./results and go to http://localhost:6006/ to see in real time the training performance.\n"
-        )
 
         # Save hyperparameters to TensorBoard
         hp_table = [
@@ -252,6 +220,7 @@ class MuZero:
             "num_played_steps",
             "num_reanalysed_games",
             "env_history",
+            "validation_result",
         ]
         info = ray.get(self.shared_storage_worker.get_info_batch.remote(keys))
         try:
@@ -283,6 +252,21 @@ class MuZero:
                             / len(info["env_history"])
                         )
                         if len(info["env_history"]) > 0
+                        else 0
+                    ),
+                    counter,
+                )
+                writer.add_scalar(
+                    "1.Total_reward/5.Validation_Result",
+                    (
+                        (
+                            sum(
+                                x["result"] in ["SAT", "UNSAT"]
+                                for x in info["validation_result"]
+                            )
+                            / len(info["validation_result"])
+                        )
+                        if len(info["validation_result"]) > 0
                         else 0
                     ),
                     counter,
@@ -359,7 +343,7 @@ class MuZero:
         # Load checkpoint
         if checkpoint_path:
             checkpoint_path = pathlib.Path(checkpoint_path)
-            self.checkpoint = torch.load(checkpoint_path, weights_only=False)
+            self.checkpoint = T.load(checkpoint_path, weights_only=False)
             print(f"\nUsing checkpoint from {checkpoint_path}")
 
         # Load replay buffer

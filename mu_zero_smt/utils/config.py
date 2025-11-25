@@ -31,8 +31,10 @@ class MuZeroConfig:
     stacked_observations: int  # Number of previous observations and previous actions to add to the current observation
 
     ### Self-Play
-    num_workers: int  # Number of simultaneous threads/workers self-playing to feed the replay buffer
-    selfplay_on_gpu: bool
+    num_self_play_workers: int  # Number of simultaneous threads/workers self-playing to feed the replay buffer
+    num_validate_workers: (
+        int  # Number of simultaneous threads / workers for validating the current model
+    )
     max_moves: int  # Maximum number of moves if game is not finished before
     num_simulations: int  # Number of future moves self-simulated
     num_continuous_samples: int  # Number of samples of continuous parameters to take
@@ -88,7 +90,6 @@ class MuZeroConfig:
     priority_alpha: float  # How much prioritization is used, 0 corresponding to the uniform case, paper suggests 1
 
     ### Adjust the self play / training ratio to avoid over/underfitting
-    self_play_delay: float  # Number of seconds to wait after each played game
     training_delay: float  # Number of seconds to wait after each training step
     ratio: (
         float | None
