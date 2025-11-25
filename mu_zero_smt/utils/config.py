@@ -16,9 +16,6 @@ class MuZeroConfig:
     # More information is available here: https://github.com/werner-duvaud/muzero-general/wiki/Hyperparameter-Optimization
 
     seed: int  # Seed for numpy, torch and the game
-    max_num_gpus: (
-        int | None
-    )  # Fix the maximum number of GPUs to use. It's usually faster to use a single GPU (set it to 1) if it has enough memory. None will use every GPUs available
 
     ### Game
     observation_shape: tuple[
@@ -32,7 +29,7 @@ class MuZeroConfig:
 
     ### Self-Play
     num_self_play_workers: int  # Number of simultaneous threads/workers self-playing to feed the replay buffer
-    num_validate_workers: (
+    num_eval_workers: (
         int  # Number of simultaneous threads / workers for validating the current model
     )
     max_moves: int  # Maximum number of moves if game is not finished before
@@ -72,7 +69,6 @@ class MuZeroConfig:
     )
 
     value_loss_weight: float  # Scale the value loss to avoid overfitting of the value function, paper recommends 0.25 (See paper appendix Reanalyze)
-    train_on_gpu: bool  # Train on GPU if available
 
     weight_decay: float  # L2 weights regularization
 

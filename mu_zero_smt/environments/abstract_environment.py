@@ -63,11 +63,6 @@ class AbstractEnvironment(ABC):
         A dictionary representing arbitray stats of the previously run episode in the environment
         """
 
-    def cleanup(self: Self) -> None:
-        """
-        Cleans up the internal state of the environment so it can be serialized
-        """
-
     def close(self: Self) -> None:
         """
         Properly close the game.

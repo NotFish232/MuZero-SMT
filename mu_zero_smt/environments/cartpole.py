@@ -49,9 +49,7 @@ class Game(AbstractEnvironment):
         return MuZeroConfig(
             # More information is available here: https://github.com/werner-duvaud/muzero-general/wiki/Hyperparameter-Optimization
             seed=0,  # Seed for numpy, torch and the game
-            max_num_gpus=None  # Fix the maximum number of GPUs to use. It's usually faster to use a single GPU (set it to 1) if it has enough memory. None will use every GPUs available
             ### Game
-            ,
             observation_shape=(
                 1,
                 1,
@@ -62,7 +60,7 @@ class Game(AbstractEnvironment):
             stacked_observations=0,  # Number of previous observations and previous actions to add to the current observation
             ### Self-Play
             num_self_play_workers=1,  # Number of simultaneous threads/workers self-playing to feed the replay buffer
-            num_validate_workers=1,
+            num_eval_workers=1,
             max_moves=EPISODE_LENGTH,  # Maximum number of moves if game is not finished before
             num_simulations=50,  # Number of future moves self-simulated
             num_continuous_samples=0,
@@ -94,7 +92,6 @@ class Game(AbstractEnvironment):
             batch_size=128,  # Number of parts of games to train on at each training step
             checkpoint_interval=10,  # Number of training steps before using the model for self-playing
             value_loss_weight=1,  # Scale the value loss to avoid overfitting of the value function, paper recommends 0.25 (See paper appendix Reanalyze)
-            train_on_gpu=torch.cuda.is_available(),  # Train on GPU if available
             weight_decay=1e-4,  # L2 weights regularization
             # Exponential learning rate schedule
             lr_init=0.02,  # Initial learning rate

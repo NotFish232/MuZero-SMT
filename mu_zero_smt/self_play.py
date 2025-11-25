@@ -29,15 +29,22 @@ class SelfPlay:
     def __init__(
         self: Self,
         initial_checkpoint: dict[str, Any],
+        Environment: Type[AbstractEnvironment],
+        mode: Mode,
         config: MuZeroConfig,
         seed: int,
+        id: int,
     ) -> None:
         self.config = config
         self.seed = seed
+        self.id = id
 
         # Fix random generator seed
         np.random.seed(seed)
         T.manual_seed(seed)
+
+        self.env = Environment(mode, seed=self.seed)
+        self.mode = mode
 
         # Initialize the network
         self.model = self.config.network.from_config(self.config)
@@ -48,16 +55,12 @@ class SelfPlay:
     @ray.method
     def continuous_self_play(
         self: Self,
-        Environment: Type[AbstractEnvironment],
-        mode: Mode,
         shared_storage: ActorProxy[SharedStorage],
         replay_buffer: ActorProxy[ReplayBuffer] | None,
     ) -> None:
         """
         Runs continuous self play with an environment
         """
-
-        env = Environment(mode, seed=self.seed)
 
         while ray.get(
             shared_storage.get_info.remote("training_step")
@@ -73,36 +76,42 @@ class SelfPlay:
                     self.config,
                     ray.get(shared_storage.get_info.remote("training_step")),
                 )
-                if mode == "train"
+                if self.mode == "train"
                 else 0
             )
 
-            if mode == "train":
-                # Make sure environment is serailizable
-                env.cleanup()
-                game_history, env_stats = SelfPlay.play_game(
-                    env, self.config, self.model, temperature
-                )
+            if self.mode == "train":
+                game_history = self.play_game(temperature)
 
-                shared_storage.update_info.remote("self_play_results", env_stats)
+                shared_storage.update_info.remote(
+                    "self_play_results", self.env.episode_stats()
+                )
 
                 if replay_buffer is not None:
                     replay_buffer.save_game.remote(game_history, shared_storage)
             else:
-                tasks = [
-                    ray.remote(SelfPlay.play_game)
-                    .remote(env, self.config, self.model, temperature, id)
-                    for id in env.unique_episodes()
-                ]
+                ids = self.env.unique_episodes()
 
-                results = ray.get(tasks)
+                batch_size = math.ceil(len(ids) / self.config.num_eval_workers)
 
-                shared_storage.set_info.remote(
-                    "eval_results", [stats for _, stats in results]
-                )
+                batch_start = self.id * batch_size
+                batch_end = min(batch_start + batch_size, len(ids))
+
+                for i in range(batch_size, batch_end):
+                    self.play_game(0, ids[i])
+
+                    shared_storage.update_info.remote(
+                        "eval_results", self.env.episode_stats()
+                    )
+                
+                shared_storage.update_info.remote("num_eval_finished", 1)
+
+                # Wait for all eval actors to finish and the main thread to clear it
+                while len(ray.get(shared_storage.get_info.remote("num_eval_finished"))) != 0:
+                    time.sleep(1)
 
             # Managing the self-play / training ratio
-            if mode == "train" and self.config.ratio:
+            if self.mode == "train" and self.config.ratio:
                 while (
                     ray.get(shared_storage.get_info.remote("training_step"))
                     / max(
@@ -115,28 +124,25 @@ class SelfPlay:
                 ):
                     time.sleep(0.5)
 
-        env.close()
+        self.env.close()
 
-    @staticmethod
     def play_game(
-        env: AbstractEnvironment,
-        config: MuZeroConfig,
-        model: MuZeroNetwork,
+        self: Self,
         temperature: float,
         env_id: int | None = None,
-    ) -> tuple["GameHistory", dict[str, Any]]:
+    ) -> "GameHistory":
         """
         Play one game with actions based on the Monte Carlo tree search at each moves.
         """
 
         # Initial observation
-        observation = env.reset(env_id)
+        observation = self.env.reset(env_id)
 
         # Initial game history with a dummy entry for the root node
         game_history = GameHistory()
 
         game_history.action_history.append(0)
-        game_history.param_history.append(np.zeros(config.continuous_action_space))
+        game_history.param_history.append(np.zeros(self.config.continuous_action_space))
         game_history.observation_history.append(observation)
         game_history.reward_history.append(0)
 
@@ -147,21 +153,25 @@ class SelfPlay:
                 # Stack the last `self.config.stacked_observations` number of observations
                 stacked_observations = game_history.get_stacked_observations(
                     -1,
-                    config.stacked_observations,
-                    config.discrete_action_space,
+                    self.config.stacked_observations,
+                    self.config.discrete_action_space,
                 )
 
                 # Choose the next action based on MCTS' visit distributions and a temperature parameter
-                root = MCTS(config).run(
-                    model,
+                root = MCTS(self.config).run(
+                    self.model,
                     stacked_observations,
                     True,
                 )
                 action, params = SelfPlay.select_action(root, temperature)
 
-                observation, reward, done = env.step(action, 1 / (1 + np.exp(-params)))
+                observation, reward, done = self.env.step(
+                    action, 1 / (1 + np.exp(-params))
+                )
 
-                game_history.store_search_statistics(root, config.discrete_action_space)
+                game_history.store_search_statistics(
+                    root, self.config.discrete_action_space
+                )
 
                 # Next batch
                 game_history.action_history.append(action)
@@ -169,7 +179,7 @@ class SelfPlay:
                 game_history.observation_history.append(observation)
                 game_history.reward_history.append(reward)
 
-        return game_history, env.episode_stats()
+        return game_history
 
     @staticmethod
     def select_action(node: "MCTSNode", temperature: float) -> tuple[int, np.ndarray]:

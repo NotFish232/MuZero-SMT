@@ -34,8 +34,6 @@ class MuZero:
 
         config (dict, MuZeroConfig, optional): Override the default config of the game.
 
-        split_resources_in (int, optional): Split the GPU usage when using concurent muzero instances.
-
     Example:
         >>> muzero = MuZero("cartpole")
         >>> muzero.train()
@@ -45,7 +43,6 @@ class MuZero:
     def __init__(
         self: Self,
         game_name: str,
-        split_resources_in: int = 1,
     ) -> None:
         # Load the game and the config from the module with the game name
         try:
@@ -67,29 +64,10 @@ class MuZero:
         np.random.seed(self.config.seed)
         T.manual_seed(self.config.seed)
 
-        # Manage GPUs
-        if self.config.max_num_gpus == 0 and (
-            self.config.num_self_play_workers or self.config.train_on_gpu
-        ):
-            raise ValueError(
-                "Inconsistent MuZeroConfig: max_num_gpus = 0 but GPU requested by selfplay_on_gpu or train_on_gpu or reanalyse_on_gpu."
-            )
-        if self.config.num_self_play_workers or self.config.train_on_gpu:
-            total_gpus = (
-                self.config.max_num_gpus
-                if self.config.max_num_gpus is not None
-                else T.cuda.device_count()
-            )
-        else:
-            total_gpus = 0
-        self.num_gpus = total_gpus / split_resources_in
-        if 1 < self.num_gpus:
-            self.num_gpus = math.floor(self.num_gpus)
-
         ray.init(
             num_cpus=self.config.num_self_play_workers
-            + self.config.num_validate_workers
-            + 3
+            + self.config.num_eval_workers
+            + 2
         )
 
         # Checkpoint and replay buffer used to initialize workers
@@ -97,6 +75,7 @@ class MuZero:
             "weights": None,
             "optimizer_state": None,
             # Metrics
+            "num_eval_finished": [],
             "self_play_results": [],
             "eval_results": [],
             "training_step": 0,
@@ -129,16 +108,6 @@ class MuZero:
         """
         self.config.results_path.mkdir(parents=True, exist_ok=True)
 
-        # Manage GPUs
-        if 0 < self.num_gpus:
-            num_gpus_per_worker = self.num_gpus / (
-                self.config.train_on_gpu + (self.config.num_self_play_workers + 1)
-            )
-            if 1 < num_gpus_per_worker:
-                num_gpus_per_worker = math.floor(num_gpus_per_worker)
-        else:
-            num_gpus_per_worker = 0
-
         # Initialize workers
         self.shared_storage_worker = (
             ray.remote(SharedStorage)
@@ -170,45 +139,49 @@ class MuZero:
 
         self.self_play_workers = [
             ray.remote(SelfPlay)
-            .options(name=f"self_play_{i + 1}_worker", num_cpus=1)
+            .options(name=f"self_play_worker_{i + 1}", num_cpus=1)
             .remote(
                 self.checkpoint,
+                self.Game,
+                "train",
                 self.config,
                 self.config.seed + i,
+                i,
             )
             for i in range(self.config.num_self_play_workers)
         ]
 
-        self.test_worker = (
+        self.eval_workers = [
             ray.remote(SelfPlay)
-            .options(name="eval_worker", num_cpus=1)
+            .options(name=f"eval_worker_{i + 1}", num_cpus=1)
             .remote(
                 self.checkpoint,
+                self.Game,
+                "eval",
                 self.config,
-                self.config.seed + self.config.num_self_play_workers,
+                self.config.seed + self.config.num_self_play_workers + i,
+                i,
             )
-        )
+            for i in range(self.config.num_eval_workers)
+        ]
 
         # Launch workers
-        for self_play_worker in self.self_play_workers:
-            self_play_worker.continuous_self_play.remote(
-                self.Game,
-                "train",
-                self.shared_storage_worker,
-                self.replay_buffer_worker,
-            )
+        self.reanalyse_worker.reanalyse.remote(
+            self.replay_buffer_worker, self.shared_storage_worker
+        )
 
         self.training_worker.continuous_update_weights.remote(
             self.replay_buffer_worker, self.shared_storage_worker
         )
 
-        self.reanalyse_worker.reanalyse.remote(
-            self.replay_buffer_worker, self.shared_storage_worker
-        )
+        for self_play_worker in self.self_play_workers:
+            self_play_worker.continuous_self_play.remote(
+                self.shared_storage_worker,
+                self.replay_buffer_worker,
+            )
 
-        self.test_worker.continuous_self_play.remote(
-            self.Game, "eval", self.shared_storage_worker, None
-        )
+        for eval_worker in self.eval_workers:
+            eval_worker.continuous_self_play.remote(self.shared_storage_worker, None)
 
         self.logging_loop()
 
@@ -224,7 +197,8 @@ class MuZero:
         counter = 0
         keys = [
             "training_step",
-            # Metric
+            # Metrics
+            "num_eval_finished",
             "self_play_results",
             "eval_results",
             # Stats
@@ -258,21 +232,25 @@ class MuZero:
                     ),
                     counter,
                 )
-                writer.add_scalar(
-                    "1.Metrics/2.Eval_Percent_Solved",
-                    (
+
+                if len(info["num_eval_finished"]) == self.config.num_eval_workers:
+                    writer.add_scalar(
+                        "1.Metrics/2.Eval_Percent_Solved",
                         (
-                            sum(
-                                x["result"] in ["SAT", "UNSAT"]
-                                for x in info["eval_results"]
+                            (
+                                sum(
+                                    x["result"] in ["SAT", "UNSAT"]
+                                    for x in info["eval_results"]
+                                )
+                                / len(info["eval_results"])
                             )
-                            / len(info["eval_results"])
-                        )
-                        if len(info["eval_results"]) > 0
-                        else 0
-                    ),
-                    counter,
-                )
+                        ),
+                        counter,
+                    )
+                    self.shared_storage_worker.set_info_batch.remote(
+                        {"eval_results": [], "num_eval_finished": []}
+                    )
+
                 writer.add_scalar(
                     "2.Workers/1.Self_played_games",
                     info["num_played_games"],

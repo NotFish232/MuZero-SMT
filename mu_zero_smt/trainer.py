@@ -39,7 +39,7 @@ class Trainer:
         # Initialize the network
         self.model = self.config.network.from_config(self.config)
         self.model.load_state_dict(copy.deepcopy(initial_checkpoint["weights"]))
-        self.model.to(T.device("cuda" if self.config.train_on_gpu else "cpu"))
+        self.model.to(T.device("cpu"))
         self.model.train()
 
         self.training_step = initial_checkpoint["training_step"]
