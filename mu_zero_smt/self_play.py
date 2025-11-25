@@ -131,7 +131,7 @@ class SelfPlay:
         """
         Play one game with actions based on the Monte Carlo tree search at each moves.
         """
-        
+
         # Initial observation
         observation = env.reset(env_id)
 

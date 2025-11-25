@@ -97,7 +97,7 @@ class Trainer:
                 )
 
                 # Save model weights
-                shared_storage.save_checkpoint.remote()
+                shared_storage.save_checkpoint.remote(None)
 
                 # Save replay buffer
                 replay_buffer_path = self.config.results_path / "replay_buffer.pkl"

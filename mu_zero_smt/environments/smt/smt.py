@@ -1,4 +1,3 @@
-import logging
 import random
 from datetime import datetime
 from pathlib import Path
@@ -14,14 +13,6 @@ from mu_zero_smt.utils.utils import Mode
 
 from ..abstract_environment import AbstractEnvironment, MuZeroConfig
 from .dataset import SMTDataset
-
-logging.basicConfig(
-    filename="information.log",
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-
 
 SOLVING_TIMEOUT = 60
 
@@ -229,33 +220,17 @@ class Game(AbstractEnvironment):
                     f"Expected 1 subgoal but found {len(sub_goals)} subgoals instead"
                 )
 
-            logging.info(
-                f'{current_file.stem} | Ran tactic "{TACTICS[action]}" ({timeout:.2f}) successfully'
-            )
-
             self.current_goal = sub_goals[0]
 
             if len(self.current_goal) == 0 or self.current_goal.inconsistent():
                 reward = 2 - self.time_spent / SOLVING_TIMEOUT
                 done = True
 
-                logging.info(
-                    f"{current_file.stem} | Found SAT / UNSAT ({self.time_spent:.3f}s)"
-                )
-
         except z3.Z3Exception as e:
             msg = e.args[0].decode()
 
-            if msg == "canceled":
-                logging.info(
-                    f'{current_file.stem} | Tactic "{TACTICS[action]}" ({timeout:.2f}) timed out'
-                )
-
-            else:
+            if msg != "canceled":
                 reward = -0.1
-                logging.info(
-                    f'{current_file.stem} | Error encountered running tactic "{TACTICS[action]}", {e}'
-                )
 
         finally:
             end = perf_counter()
@@ -266,12 +241,9 @@ class Game(AbstractEnvironment):
                 reward = -1
                 done = True
 
-                logging.info(f"{current_file.stem} | TERM - Timing out")
             elif len(self.tactics_applied) >= MAX_NUM_TACTICS:
                 reward = -1
                 done = True
-
-                logging.info(f"{current_file.stem} | TERM - Ran max number tactics")
 
         return self._get_observation(), reward, done
 

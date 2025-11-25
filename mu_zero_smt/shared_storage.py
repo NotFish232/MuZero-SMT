@@ -18,7 +18,7 @@ class SharedStorage:
         self.current_checkpoint = copy.deepcopy(checkpoint)
 
     @ray.method
-    def save_checkpoint(self: Self, path: Path | None = None) -> None:
+    def save_checkpoint(self: Self, path: Path | None) -> None:
         if not path:
             path = self.config.results_path / "model.checkpoint"
 
