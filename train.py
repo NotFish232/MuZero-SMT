@@ -214,6 +214,8 @@ class MuZero:
         info = ray.get(self.shared_storage_worker.get_info_batch.remote(keys))
         try:
             while info["training_step"] < self.config.training_steps:
+                print(info["finished_eval_workers"], len(info["eval_results"]))
+
                 info = ray.get(self.shared_storage_worker.get_info_batch.remote(keys))
 
                 writer.add_scalar(
