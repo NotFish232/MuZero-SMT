@@ -13,4 +13,4 @@
 
 source venv/bin/activate
 
-python -u test.py
+python -u test.py "$@"

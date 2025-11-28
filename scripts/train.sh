@@ -13,4 +13,4 @@
 
 source venv/bin/activate
 
-python -u train.py
+python -u train.py "$@"
