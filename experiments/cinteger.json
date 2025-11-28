@@ -1,4 +1,5 @@
 {
+    "experiment_name": "cinteger",
     "seed": 0,
     "env_config": {
         "tactics": [
@@ -79,8 +80,7 @@
         16,
         16
     ],
-    "experiment_name": "cinteger",
-    "training_steps": 200000,
+    "training_steps": 100000,
     "batch_size": 32,
     "checkpoint_interval": 100,
     "value_loss_weight": 1,
@@ -92,7 +92,7 @@
     "num_unroll_steps": 3,
     "td_steps": 7,
     "priority_alpha": 0.5,
-    "training_delay": 0.5,
+    "training_delay": 1,
     "ratio": null,
     "temperature_start": 1,
     "temperature_end": 0.25
