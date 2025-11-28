@@ -167,7 +167,7 @@ class SMTEnvironment(AbstractEnvironment):
         self.dataset = SMTDataset("QF_NIA/CInteger", self.mode, TRAIN_TEST_SPLIT)
 
         self.time_spent = 0.0
-        self.tactics_applied: list[tuple[str, np.ndarray]] = []
+        self.tactics_applied: list[tuple[str, list[float]]] = []
 
         self.selected_idx = -1
 
@@ -199,7 +199,7 @@ class SMTEnvironment(AbstractEnvironment):
         reward = 0.0
         done = False
 
-        self.tactics_applied.append((TACTICS[action], params))
+        self.tactics_applied.append((TACTICS[action], params.tolist()))
 
         acc_tactic = z3.TryFor(
             z3.Tactic(TACTICS[action]),

@@ -1,4 +1,5 @@
 import json
+import time
 from pathlib import Path
 
 import ray
@@ -66,6 +67,8 @@ def main() -> None:
 
         if len(info["finished_test_workers"]) == config.num_test_workers:
             break
+
+        time.sleep(1)
 
     results = ray.get(shared_storage_worker.get_info.remote("test_results"))
 
