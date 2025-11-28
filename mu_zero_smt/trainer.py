@@ -1,5 +1,4 @@
 import copy
-import pickle
 import time
 
 import numpy as np
@@ -16,6 +15,7 @@ from mu_zero_smt.models import (
     scalar_to_support,
     support_to_scalar,
 )
+from mu_zero_smt.models.ftc_network import FTCNetwork
 from mu_zero_smt.replay_buffer import ReplayBuffer
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.utils.config import MuZeroConfig
@@ -37,7 +37,7 @@ class Trainer:
         T.manual_seed(self.config.seed)
 
         # Initialize the network
-        self.model = self.config.network.from_config(self.config)
+        self.model = FTCNetwork.from_config(self.config)
         self.model.load_state_dict(copy.deepcopy(initial_checkpoint["weights"]))
         self.model.to(T.device("cpu"))
         self.model.train()
@@ -100,22 +100,22 @@ class Trainer:
                 shared_storage.save_checkpoint.remote(None)
 
                 # Save replay buffer
-                replay_buffer_path = self.config.results_path / "replay_buffer.pkl"
-                pickle.dump(
-                    {
-                        "buffer": ray.get(replay_buffer.get_buffer.remote()),
-                        "num_played_games": ray.get(
-                            shared_storage.get_info.remote("num_played_games")
-                        ),
-                        "num_played_steps": ray.get(
-                            shared_storage.get_info.remote("num_played_steps")
-                        ),
-                        "num_reanalysed_games": ray.get(
-                            shared_storage.get_info.remote("num_reanalysed_games")
-                        ),
-                    },
-                    open(replay_buffer_path, "wb"),
-                )
+                # replay_buffer_path = self.config.results_path / "replay_buffer.pkl"
+                # pickle.dump(
+                #     {
+                #         "buffer": ray.get(replay_buffer.get_buffer.remote()),
+                #         "num_played_games": ray.get(
+                #             shared_storage.get_info.remote("num_played_games")
+                #         ),
+                #         "num_played_steps": ray.get(
+                #             shared_storage.get_info.remote("num_played_steps")
+                #         ),
+                #         "num_reanalysed_games": ray.get(
+                #             shared_storage.get_info.remote("num_reanalysed_games")
+                #         ),
+                #     },
+                #     open(replay_buffer_path, "wb"),
+                # )
 
             shared_storage.set_info_batch.remote(
                 {

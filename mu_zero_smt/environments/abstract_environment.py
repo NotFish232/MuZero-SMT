@@ -3,7 +3,6 @@ from abc import ABC, abstractmethod
 import numpy as np
 from typing_extensions import Any, Self
 
-from mu_zero_smt.utils.config import MuZeroConfig
 from mu_zero_smt.utils.utils import Mode
 
 
@@ -19,13 +18,6 @@ class AbstractEnvironment(ABC):
         seed: int | None = None,
     ) -> None:
         pass
-
-    @staticmethod
-    @abstractmethod
-    def get_config() -> MuZeroConfig:
-        """
-        Get the MuZeroConfig for this game. Used for training
-        """
 
     @abstractmethod
     def step(

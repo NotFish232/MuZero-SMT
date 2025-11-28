@@ -1,0 +1,99 @@
+{
+    "seed": 0,
+    "env_config": {
+        "tactics": [
+            "simplify",
+            "smt",
+            "bit-blast",
+            "propagate-values",
+            "ctx-simplify",
+            "elim-uncnstr",
+            "solve-eqs",
+            "qfnia",
+            "lia2card",
+            "max-bv-sharing",
+            "nla2bv",
+            "qfnra-nlsat",
+            "cofactor-term-ite"
+        ],
+        "probes": [
+            "is-unbounded",
+            "arith-max-deg",
+            "arith-avg-deg",
+            "arith-max-bw",
+            "arith-avg-bw",
+            "is-qfnia",
+            "is-qfbv-eq",
+            "memory",
+            "size",
+            "num-exprs",
+            "num-consts",
+            "num-bool-consts",
+            "num-arith-consts",
+            "num-bv-consts",
+            "is-propositional",
+            "is-qfbv"
+        ],
+        "solving_timeout": 60,
+        "max_num_tactics": 10,
+        "split": {
+            "train": 0.15,
+            "eval": 0.05,
+            "test": 0.8
+        }
+    },
+    "observation_shape": [
+        1,
+        1,
+        17
+    ],
+    "discrete_action_space": 13,
+    "continuous_action_space": 1,
+    "stacked_observations": 0,
+    "num_self_play_workers": 1,
+    "num_eval_workers": 4,
+    "num_test_workers": 8,
+    "num_simulations": 500,
+    "num_continuous_samples": 2,
+    "discount": 1,
+    "root_dirichlet_alpha": 0.25,
+    "root_exploration_fraction": 0.25,
+    "pb_c_base": 5000,
+    "pb_c_init": 3,
+    "support_size": 2,
+    "encoding_size": 12,
+    "fc_representation_layers": [
+        16
+    ],
+    "fc_dynamics_layers": [
+        16,
+        16
+    ],
+    "fc_reward_layers": [
+        16
+    ],
+    "fc_value_layers": [
+        16
+    ],
+    "fc_policy_layers": [
+        16,
+        16
+    ],
+    "experiment_name": "cinteger",
+    "training_steps": 200000,
+    "batch_size": 32,
+    "checkpoint_interval": 100,
+    "value_loss_weight": 1,
+    "weight_decay": 0.0001,
+    "lr_init": 0.0005,
+    "lr_decay_rate": 0.99,
+    "lr_decay_steps": 1000,
+    "replay_buffer_size": 100,
+    "num_unroll_steps": 3,
+    "td_steps": 7,
+    "priority_alpha": 0.5,
+    "training_delay": 0.5,
+    "ratio": null,
+    "temperature_start": 1,
+    "temperature_end": 0.25
+}

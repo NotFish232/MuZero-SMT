@@ -10,11 +10,12 @@ from typing_extensions import Any, Self, Type
 
 from mu_zero_smt.environments.abstract_environment import AbstractEnvironment
 from mu_zero_smt.models import (
-    MuZeroNetwork,
+    FTCNetwork,
     one_hot_encode,
     sample_continuous_params,
     support_to_scalar,
 )
+from mu_zero_smt.models.mu_zero_network import MuZeroNetwork
 from mu_zero_smt.replay_buffer import ReplayBuffer
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.utils.config import MuZeroConfig
@@ -43,11 +44,11 @@ class SelfPlay:
         np.random.seed(seed)
         T.manual_seed(seed)
 
-        self.env = Environment(mode, seed=self.seed)
+        self.env = Environment(mode, seed=self.seed, **self.config.env_config)
         self.mode = mode
 
         # Initialize the network
-        self.model = self.config.network.from_config(self.config)
+        self.model = FTCNetwork.from_config(self.config)
         self.model.load_state_dict(initial_checkpoint["weights"])
         self.model.to(T.device("cpu"))
         self.model.eval()
@@ -72,10 +73,10 @@ class SelfPlay:
             )
 
             temperature = (
-                self.config.visit_softmax_temperature_fn(
-                    self.config,
-                    ray.get(shared_storage.get_info.remote("training_step")),
-                )
+                self.config.temperature_start
+                + (self.config.temperature_end - self.config.temperature_start)
+                * ray.get(shared_storage.get_info.remote("training_step"))
+                / self.config.training_steps
                 if self.mode == "train"
                 else 0
             )
@@ -90,6 +91,8 @@ class SelfPlay:
                 if replay_buffer is not None:
                     replay_buffer.save_game.remote(game_history, shared_storage)
             else:
+                # print(f"worker {self.worker_id} starting...")
+
                 ids = self.env.unique_episodes()
 
                 batch_size = math.ceil(len(ids) / self.config.num_eval_workers)
@@ -104,9 +107,13 @@ class SelfPlay:
                         f"{self.mode}_results", self.env.episode_stats()
                     )
 
+                    # print(f"worker {self.worker_id} completed {i - batch_start} ({batch_end - batch_start})")
+
                 shared_storage.update_info.remote(
                     f"finished_{self.mode}_workers", self.worker_id
                 )
+
+                # print(f"worker {self.worker_id} finished")
 
                 # Wait for all eval actors to finish and the main thread to clear it
                 while (

@@ -8,6 +8,7 @@ from ray.actor import ActorProxy
 from typing_extensions import TYPE_CHECKING, Any, Self
 
 from mu_zero_smt.models import support_to_scalar
+from mu_zero_smt.models.ftc_network import FTCNetwork
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.utils.config import MuZeroConfig
 
@@ -394,7 +395,7 @@ class Reanalyse:
         T.manual_seed(self.config.seed)
 
         # Initialize the network
-        self.model = self.config.network.from_config(config)
+        self.model = FTCNetwork.from_config(config)
         self.model.load_state_dict(initial_checkpoint["weights"])
         self.model.to(T.device("cpu"))
         self.model.eval()

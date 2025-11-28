@@ -1,23 +1,33 @@
 import json
+import sys
 import time
 from pathlib import Path
 
 import ray
 import torch as T
+from natsort import natsorted
 from tqdm import tqdm  # type: ignore
 
 from mu_zero_smt.environments.smt import SMTEnvironment
 from mu_zero_smt.self_play import SelfPlay
 from mu_zero_smt.shared_storage import SharedStorage
+from mu_zero_smt.utils.config import MuZeroConfig
 
-CHECKPOINT_DIR = f"{next(f for f in Path("results/smt").rglob("*") if f.is_dir())}"
 
-
-@T.no_grad()
 def main() -> None:
-    config = SMTEnvironment.get_config()
+    experiment_name = sys.argv[1]
 
-    checkpoint = T.load(f"{CHECKPOINT_DIR}/model.checkpoint", weights_only=False)
+    config_path = Path(__file__).parent / "experiments" / f"{experiment_name}.json"
+
+    config = MuZeroConfig(**json.load(open(config_path)))
+
+    checkpoint_dir = natsorted(
+        f
+        for f in (Path(__file__).parent / "results" / config.experiment_name).iterdir()
+        if f.is_dir()
+    )[-1]
+
+    checkpoint = T.load(f"{checkpoint_dir}/model.checkpoint", weights_only=False)
 
     ray.init(num_cpus=config.num_test_workers)
 
@@ -33,6 +43,7 @@ def main() -> None:
                 "terminate": False,
             },
             config,
+            None,
         )
     )
 
@@ -53,7 +64,9 @@ def main() -> None:
     for test_worker in test_workers:
         test_worker.continuous_self_play.remote(shared_storage_worker, None)
 
-    p_bar = tqdm(total=len(SMTEnvironment(mode="test").unique_episodes()))
+    p_bar = tqdm(
+        total=len(SMTEnvironment(mode="test", **config.env_config).unique_episodes())
+    )
 
     while True:
         info = ray.get(
@@ -65,6 +78,9 @@ def main() -> None:
         p_bar.n = len(info["test_results"])
         p_bar.update()
 
+        if p_bar.n == 10:
+            break
+
         if len(info["finished_test_workers"]) == config.num_test_workers:
             break
 
@@ -74,7 +90,7 @@ def main() -> None:
 
     ray.shutdown()
 
-    with open(f"{CHECKPOINT_DIR}/test_results.json", "w+") as f:
+    with open(f"{checkpoint_dir}/test_results.json", "w+") as f:
         json.dump(results, f)
 
 

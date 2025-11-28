@@ -1,11 +1,16 @@
+import json
 import os
 import pathlib
 import pickle
+import sys
 import time
+from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import torch as T
 from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm  # type: ignore
 from typing_extensions import Any, Self, Type
 
 os.environ["RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO"] = "0"
@@ -16,10 +21,12 @@ import ray
 from mu_zero_smt.environments.abstract_environment import AbstractEnvironment
 from mu_zero_smt.environments.smt import SMTEnvironment
 from mu_zero_smt.models import dict_to_cpu
+from mu_zero_smt.models.ftc_network import FTCNetwork
 from mu_zero_smt.replay_buffer import Reanalyse, ReplayBuffer
 from mu_zero_smt.self_play import GameHistory, SelfPlay
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.trainer import Trainer
+from mu_zero_smt.utils.config import MuZeroConfig
 
 
 class MuZero:
@@ -41,13 +48,14 @@ class MuZero:
     def __init__(
         self: Self,
         Environment: Type[AbstractEnvironment],
+        config: MuZeroConfig,
     ) -> None:
 
         self.Environment = Environment
-        self.config = self.Environment.get_config()
+        self.config = config
 
         # Preload the data if its being downloaded so it doesn't happen in each actor
-        self.Environment(mode="train")
+        self.Environment(mode="train", **self.config.env_config)
 
         # Fix random generator seed
         np.random.seed(self.config.seed)
@@ -84,27 +92,29 @@ class MuZero:
 
         self.replay_buffer: dict[int, GameHistory] = {}
 
-        model = self.config.network.from_config(self.config)
+        model = FTCNetwork.from_config(self.config)
 
         self.checkpoint["weights"] = dict_to_cpu(model.state_dict())
 
     def train(self: Self) -> None:
         """
         Spawn ray workers and launch the training.
-
-        Args:
-            log_in_tensorboard (bool): Start a testing worker and log its performance in TensorBoard.
         """
-        self.config.results_path.mkdir(parents=True, exist_ok=True)
+
+        self.results_path = (
+            Path(__file__).parent
+            / "results"
+            / self.config.experiment_name
+            / datetime.now().strftime("%Y-%m-%d--%H-%M-%S")
+        )
+
+        Path(self.results_path).mkdir(exist_ok=True, parents=True)
 
         # Initialize workers
         self.shared_storage_worker = (
             ray.remote(SharedStorage)
             .options(name="shared_storage_worker", num_cpus=0)
-            .remote(
-                self.checkpoint,
-                self.config,
-            )
+            .remote(self.checkpoint, self.config, self.results_path)
         )
         self.shared_storage_worker.set_info.remote("terminate", False)
 
@@ -180,9 +190,11 @@ class MuZero:
         """
 
         # Write everything in TensorBoard
-        writer = SummaryWriter(self.config.results_path)
+        writer = SummaryWriter(self.results_path)
 
         # Loop for updating the training performance
+        p_bar = tqdm(total=self.config.training_steps)
+
         counter = 0
         keys = [
             "training_step",
@@ -267,11 +279,11 @@ class MuZero:
                 writer.add_scalar("3.Loss/Value_loss", info["value_loss"], counter)
                 writer.add_scalar("3.Loss/Reward_loss", info["reward_loss"], counter)
                 writer.add_scalar("3.Loss/Policy_loss", info["policy_loss"], counter)
-                print(
-                    f'Training step: {info["training_step"]}/{self.config.training_steps}. Played games: {info["num_played_games"]}. Loss: {info["total_loss"]:.2f}',
-                    end="\r",
-                )
+
                 counter += 1
+
+                p_bar.n = info["training_step"]
+                p_bar.update()
 
                 time.sleep(1)
 
@@ -343,7 +355,13 @@ class MuZero:
 
 
 def main() -> None:
-    muzero = MuZero(SMTEnvironment)
+    experiment_name = sys.argv[1]
+
+    config_path = Path(__file__).parent / "experiments" / f"{experiment_name}.json"
+
+    config = MuZeroConfig(**json.load(open(config_path)))
+
+    muzero = MuZero(SMTEnvironment, config)
     muzero.train()
 
 

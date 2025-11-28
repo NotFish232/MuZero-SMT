@@ -1,10 +1,6 @@
 from dataclasses import dataclass
-from pathlib import Path
 
-from typing_extensions import TYPE_CHECKING, Callable, Self, Type
-
-if TYPE_CHECKING:
-    from mu_zero_smt.models import MuZeroNetwork
+from typing_extensions import Any
 
 """
 A data class holding the config for MuZero
@@ -16,6 +12,8 @@ class MuZeroConfig:
     # More information is available here: https://github.com/werner-duvaud/muzero-general/wiki/Hyperparameter-Optimization
 
     seed: int  # Seed for numpy, torch and the game
+
+    env_config: dict[str, Any]
 
     ### Game
     observation_shape: tuple[
@@ -33,7 +31,6 @@ class MuZeroConfig:
         int  # Number of simultaneous threads / workers for validating the current model
     )
     num_test_workers: int
-    max_moves: int  # Maximum number of moves if game is not finished before
     num_simulations: int  # Number of future moves self-simulated
     num_continuous_samples: int  # Number of samples of continuous parameters to take
     discount: float  # Chronological discount of the reward
@@ -46,7 +43,6 @@ class MuZeroConfig:
     pb_c_init: float
 
     ### Network
-    network: Type["MuZeroNetwork"]  # Which network is used
     support_size: int  # Value and reward are scaled (with almost sqrt) and encoded on a vector with a range of -support_size to support_size. Choose it so that support_size <= sqrt(max(abs(discounted reward)))
     # Fully Connected Network
     encoding_size: int
@@ -59,7 +55,7 @@ class MuZeroConfig:
     fc_policy_layers: list[int]  # Define the hidden layers in the policy network
 
     ### Training
-    results_path: Path  # Path to store the model weights and TensorBoard logs
+    experiment_name: str
     training_steps: (
         int  # Total number of training steps (ie weights update according to a batch)
     )
@@ -93,10 +89,7 @@ class MuZeroConfig:
     )  # Desired training steps per self played step ratio. Equivalent to a synchronous version, training can take much longer. Set it to None to disable it
 
     """
-        Parameter to alter the visit count distribution to ensure that the action selection becomes greedier as training progresses.
-        The smaller it is, the more likely the best action (ie with the highest visit count) is chosen.
-
-        Returns:
-            Positive float.
+    Linearly interpolates between temperature start and end over the course of training
     """
-    visit_softmax_temperature_fn: Callable[[Self, int], float]
+    temperature_start: float
+    temperature_end: float

@@ -13,14 +13,18 @@ class SharedStorage:
     Class which run in a dedicated thread to store the network weights and some information.
     """
 
-    def __init__(self: Self, checkpoint: dict[str, Any], config: MuZeroConfig) -> None:
+    def __init__(
+        self: Self, checkpoint: dict[str, Any], config: MuZeroConfig, results_path: Path
+    ) -> None:
         self.config = config
         self.current_checkpoint = copy.deepcopy(checkpoint)
+
+        self.results_path = results_path
 
     @ray.method
     def save_checkpoint(self: Self, path: Path | None) -> None:
         if not path:
-            path = self.config.results_path / "model.checkpoint"
+            path = self.results_path / "model.checkpoint"
 
         T.save(self.current_checkpoint, path)
 
