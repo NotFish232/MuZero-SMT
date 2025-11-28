@@ -21,6 +21,7 @@ class SMTEnvironment(AbstractEnvironment):
         mode: Mode = "train",
         seed: int | None = None,
         *,
+        benchmark: str,
         tactics: list[str],
         probes: list[str],
         solving_timeout: float,
@@ -30,12 +31,14 @@ class SMTEnvironment(AbstractEnvironment):
         self.mode = mode
         random.seed(seed)
 
-        self.dataset = SMTDataset("QF_NIA/CInteger", self.mode, split)
-
+        self.benchmark = benchmark
         self.tactics = tactics
         self.probes = probes
         self.solving_timeout = solving_timeout
         self.max_num_tactics = max_num_tactics
+        self.split = split
+
+        self.dataset = SMTDataset(self.benchmark, self.mode, self.split)
 
         self.time_spent = 0.0
         self.tactics_applied: list[tuple[str, list[float]]] = []

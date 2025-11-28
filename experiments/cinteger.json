@@ -2,6 +2,7 @@
     "experiment_name": "cinteger",
     "seed": 0,
     "env_config": {
+        "benchmark": "QF_NIA/CInteger",
         "tactics": [
             "simplify",
             "smt",
