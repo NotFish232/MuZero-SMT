@@ -1,3 +1,3 @@
-from .smt import Game
+from .env import SMTEnvironment
 
-__all__ = ["Game"]
+__all__ = ["SMTEnvironment"]

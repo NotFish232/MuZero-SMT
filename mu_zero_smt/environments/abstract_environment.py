@@ -43,7 +43,7 @@ class AbstractEnvironment(ABC):
         """
 
     @abstractmethod
-    def reset(self: Self, id: int | None = None) -> np.ndarray:
+    def reset(self: Self, episode_id: int | None = None) -> np.ndarray:
         """
         Reset the game for a new game. If id is passed it should be the id of the current game
 

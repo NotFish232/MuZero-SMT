@@ -101,17 +101,21 @@ class SelfPlay:
                     self.play_game(0, ids[i])
 
                     shared_storage.update_info.remote(
-                        "eval_results", self.env.episode_stats()
+                        f"{self.mode}_results", self.env.episode_stats()
                     )
 
                 shared_storage.update_info.remote(
-                    "finished_eval_workers", self.worker_id
+                    f"finished_{self.mode}_workers", self.worker_id
                 )
 
                 # Wait for all eval actors to finish and the main thread to clear it
                 while (
                     len(
-                        ray.get(shared_storage.get_info.remote("finished_eval_workers"))
+                        ray.get(
+                            shared_storage.get_info.remote(
+                                f"finished_{self.mode}_workers"
+                            )
+                        )
                     )
                     != 0
                 ):

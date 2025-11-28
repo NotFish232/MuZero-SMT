@@ -54,7 +54,7 @@ PROBES = [
 ]
 
 
-TRAIN_TEST_SPLIT: dict[Mode, float] = {"train": 0.1, "eval": 0.1, "test": 0.8}
+TRAIN_TEST_SPLIT: dict[Mode, float] = {"train": 0.15, "eval": 0.05, "test": 0.80}
 
 
 def create_probe_embedding(goal: z3.Goal, time_used: float) -> np.ndarray:
@@ -86,7 +86,7 @@ def visit_softmax_temperature_fn(self: MuZeroConfig, trained_steps: int) -> floa
         return 0.25
 
 
-class Game(AbstractEnvironment):
+class SMTEnvironment(AbstractEnvironment):
     """
     Game wrapper.
     """
@@ -110,6 +110,7 @@ class Game(AbstractEnvironment):
             ### Self-Play
             num_self_play_workers=2,  # Number of simultaneous threads/workers self-playing to feed the replay buffer,
             num_eval_workers=5,
+            num_test_workers=8,
             max_moves=MAX_NUM_TACTICS,  # Maximum number of moves if game is not finished before
             num_simulations=500,  # Number of future moves self-simulated
             num_continuous_samples=2,
@@ -195,8 +196,6 @@ class Game(AbstractEnvironment):
 
         timeout = params[0]
 
-        current_file = self.dataset[self.selected_idx]
-
         reward = 0.0
         done = False
 
@@ -245,7 +244,7 @@ class Game(AbstractEnvironment):
         return self._get_observation(), reward, done
 
     @override
-    def reset(self: Self, id: int | None = None) -> np.ndarray:
+    def reset(self: Self, episode_id: int | None = None) -> np.ndarray:
         """
         Reset the game for a new game.
 
@@ -254,8 +253,8 @@ class Game(AbstractEnvironment):
         """
 
         # Run each benchmark sequentially in test mode
-        if id is not None:
-            self.selected_idx = self.dataset.id_to_idx[id]
+        if episode_id is not None:
+            self.selected_idx = self.dataset.id_to_idx[episode_id]
         else:
             if self.mode in ["test", "eval"]:
                 self.selected_idx += 1
@@ -293,4 +292,5 @@ class Game(AbstractEnvironment):
             "tactic_history": self.tactics_applied,
             "time": self.time_spent,
             "result": result,
+            "successful": result in ("SAT", "UNSAT"),
         }

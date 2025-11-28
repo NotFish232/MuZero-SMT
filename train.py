@@ -1,4 +1,3 @@
-import importlib
 import os
 import pathlib
 import pickle
@@ -15,12 +14,12 @@ os.environ["RAY_DEDUP_LOGS"] = "0"
 import ray
 
 from mu_zero_smt.environments.abstract_environment import AbstractEnvironment
+from mu_zero_smt.environments.smt import SMTEnvironment
 from mu_zero_smt.models import dict_to_cpu
 from mu_zero_smt.replay_buffer import Reanalyse, ReplayBuffer
 from mu_zero_smt.self_play import GameHistory, SelfPlay
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.trainer import Trainer
-from mu_zero_smt.utils.config import MuZeroConfig
 
 
 class MuZero:
@@ -41,23 +40,14 @@ class MuZero:
 
     def __init__(
         self: Self,
-        game_name: str,
+        Environment: Type[AbstractEnvironment],
     ) -> None:
-        # Load the game and the config from the module with the game name
-        try:
-            game_module = importlib.import_module(
-                f"mu_zero_smt.environments.{game_name}"
-            )
-            self.Game: Type[AbstractEnvironment] = game_module.Game
-            self.config: MuZeroConfig = self.Game.get_config()
 
-            # Preload the data if its being downloaded so it doesn't happen in each actor
-            self.Game()
-        except ModuleNotFoundError as err:
-            print(
-                f'{game_name} is not a supported game name, try "cartpole" or refer to the documentation for adding a new game.'
-            )
-            raise err
+        self.Environment = Environment
+        self.config = self.Environment.get_config()
+
+        # Preload the data if its being downloaded so it doesn't happen in each actor
+        self.Environment(mode="train")
 
         # Fix random generator seed
         np.random.seed(self.config.seed)
@@ -141,7 +131,7 @@ class MuZero:
             .options(name=f"self_play_worker_{i + 1}", num_cpus=1)
             .remote(
                 self.checkpoint,
-                self.Game,
+                self.Environment,
                 "train",
                 self.config,
                 self.config.seed + i,
@@ -155,7 +145,7 @@ class MuZero:
             .options(name=f"eval_worker_{i + 1}", num_cpus=1)
             .remote(
                 self.checkpoint,
-                self.Game,
+                self.Environment,
                 "eval",
                 self.config,
                 self.config.seed + self.config.num_self_play_workers + i,
@@ -220,10 +210,7 @@ class MuZero:
                     "1.Metrics/1.Self_Play_Percent_Solved",
                     (
                         (
-                            sum(
-                                x["result"] in ["SAT", "UNSAT"]
-                                for x in info["self_play_results"]
-                            )
+                            sum(x["successful"] for x in info["self_play_results"])
                             / len(info["self_play_results"])
                         )
                         if len(info["self_play_results"]) > 0
@@ -237,10 +224,7 @@ class MuZero:
                         "1.Metrics/2.Eval_Percent_Solved",
                         (
                             (
-                                sum(
-                                    x["result"] in ["SAT", "UNSAT"]
-                                    for x in info["eval_results"]
-                                )
+                                sum(x["successful"] for x in info["eval_results"])
                                 / len(info["eval_results"])
                             )
                         ),
@@ -256,22 +240,27 @@ class MuZero:
                     counter,
                 )
                 writer.add_scalar(
-                    "2.Workers/2.Training_steps", info["training_step"], counter
+                    "2.Workers/2.Eval_played_games",
+                    len(info["eval_results"]),
+                    counter,
                 )
                 writer.add_scalar(
-                    "2.Workers/3.Self_played_steps", info["num_played_steps"], counter
+                    "2.Workers/3.Training_steps", info["training_step"], counter
                 )
                 writer.add_scalar(
-                    "2.Workers/4.Reanalysed_games",
+                    "2.Workers/4.Self_played_steps", info["num_played_steps"], counter
+                )
+                writer.add_scalar(
+                    "2.Workers/5.Reanalysed_games",
                     info["num_reanalysed_games"],
                     counter,
                 )
                 writer.add_scalar(
-                    "2.Workers/5.Training_steps_per_self_played_step_ratio",
+                    "2.Workers/6.Training_steps_per_self_played_step_ratio",
                     info["training_step"] / max(1, info["num_played_steps"]),
                     counter,
                 )
-                writer.add_scalar("2.Workers/6.Learning_rate", info["lr"], counter)
+                writer.add_scalar("2.Workers/7.Learning_rate", info["lr"], counter)
                 writer.add_scalar(
                     "3.Loss/1.Total_weighted_loss", info["total_loss"], counter
                 )
@@ -353,11 +342,8 @@ class MuZero:
             self.checkpoint["num_reanalysed_games"] = 0
 
 
-GAME_NAME = "smt"
-
-
 def main() -> None:
-    muzero = MuZero(GAME_NAME)
+    muzero = MuZero(SMTEnvironment)
     muzero.train()
 
 

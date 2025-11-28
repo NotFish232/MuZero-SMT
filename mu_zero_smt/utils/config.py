@@ -32,6 +32,7 @@ class MuZeroConfig:
     num_eval_workers: (
         int  # Number of simultaneous threads / workers for validating the current model
     )
+    num_test_workers: int
     max_moves: int  # Maximum number of moves if game is not finished before
     num_simulations: int  # Number of future moves self-simulated
     num_continuous_samples: int  # Number of samples of continuous parameters to take
