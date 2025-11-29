@@ -5,7 +5,6 @@ import ray
 import torch as T
 from typing_extensions import Any, Self
 
-from mu_zero_smt.utils.config import MuZeroConfig
 
 
 class SharedStorage:
@@ -13,10 +12,7 @@ class SharedStorage:
     Class which run in a dedicated thread to store the network weights and some information.
     """
 
-    def __init__(
-        self: Self, checkpoint: dict[str, Any], config: MuZeroConfig, results_path: Path
-    ) -> None:
-        self.config = config
+    def __init__(self: Self, checkpoint: dict[str, Any], results_path: Path) -> None:
         self.current_checkpoint = copy.deepcopy(checkpoint)
 
         self.results_path = results_path

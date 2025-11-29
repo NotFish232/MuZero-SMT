@@ -113,7 +113,7 @@ class MuZero:
         self.shared_storage_worker = (
             ray.remote(SharedStorage)
             .options(name="shared_storage_worker", num_cpus=0)
-            .remote(self.checkpoint, self.config, self.results_path)
+            .remote(self.checkpoint, self.results_path)
         )
         self.shared_storage_worker.set_info.remote("terminate", False)
 

@@ -40,7 +40,6 @@ def main() -> None:
                 "training_step": 0,
                 "terminate": False,
             },
-            config,
             None,
         )
     )

@@ -1,12 +1,53 @@
 import json
+import math
 import sys
+import time
 from pathlib import Path
+from time import perf_counter
 
+import ray
 import z3  # type: ignore
+from ray.actor import ActorProxy
 from tqdm import tqdm  # type: ignore
 
 from mu_zero_smt.environments.smt.dataset import SMTDataset
+from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.utils.config import load_config
+from mu_zero_smt.utils.utils import Mode
+
+
+@ray.remote
+def eval_z3_worker(
+    benchmark: str,
+    batch_split: dict[Mode, tuple[int, int]],
+    solving_timeout: float,
+    shared_storage: ActorProxy[SharedStorage],
+) -> None:
+    for split_name, (start, end) in batch_split.items():
+        dataset = SMTDataset(benchmark, split_name)
+
+        for idx in range(start, end):
+            solver = z3.Solver()
+
+            solver.set("timeout", 1000 * solving_timeout)
+            solver.add(z3.parse_smt2_file(str(dataset[idx])))
+
+            start_time = perf_counter()
+
+            res = solver.check()
+
+            end_time = perf_counter()
+
+            shared_storage.update_info.remote(
+                f"z3_{split_name}_results",
+                {
+                    "id": dataset.idxs[idx],
+                    "name": dataset[idx].stem,
+                    "time": end_time - start_time,
+                    "result": str(res),
+                    "successful": res in (z3.sat, z3.unsat),
+                },
+            )
 
 
 def main() -> None:
@@ -15,43 +56,63 @@ def main() -> None:
     config = load_config(experiment_name)
 
     experiment_dir = Path(__file__).parent / "results" / config.experiment_name
+    experiment_dir.mkdir(exist_ok=True, parents=True)
 
     benchmark = config.env_config["benchmark"]
     split = config.env_config["split"]
     solving_timeout = config.env_config["solving_timeout"]
 
-    results = {}
+    batch_splits = []
 
-    p_bar = tqdm(total=len(SMTDataset(benchmark, "train", split).benchmark_files))
+    for worker_id in range(config.num_test_workers):
+        worker_split = {}
 
-    for split_name in split.keys():
-        dataset = SMTDataset(benchmark, split_name, split)
+        for split_name in split.keys():
+            dataset = SMTDataset(benchmark, split_name)
 
-        split_results = []
+            batch_size = math.ceil(len(benchmark) / config.num_test_workers)
 
-        for i in range(len(dataset)):
-            solver = z3.Solver()
+            batch_start = worker_id * batch_size
+            batch_end = min(batch_start + batch_size, len(dataset))
 
-            solver.set("timeout", solving_timeout * 1000)
-            solver.add(z3.parse_smt2_file(str(dataset[i])))
+            worker_split[split_name] = (batch_start, batch_end)
 
-            res = solver.check()
+        batch_splits.append(worker_split)
 
-            split_results.append(
-                {
-                    "id": dataset.idxs[i],
-                    "name": dataset[i].stem,
-                    "result": str(res),
-                    "successful": res in (z3.sat, z3.unsat),
-                }
+    total = len(SMTDataset(benchmark, "train", split).benchmark_files)
+
+    ray.init(num_cpus=config.num_test_workers)
+
+    shared_storage = ray.remote(SharedStorage).remote(
+        {f"z3_{split_name}_results": [] for split_name in split.keys()}, None
+    )
+
+    test_workers = [
+        eval_z3_worker.remote(benchmark, batch_split, solving_timeout, shared_storage)
+        for batch_split in batch_splits
+    ]
+
+    p_bar = tqdm(total=total)
+
+    while True:
+        info = ray.get(
+            shared_storage.get_info_batch.remote(
+                [f"z3_{split_name}_results" for split_name in split.keys()]
             )
+        )
 
-            p_bar.update()
+        num_completed = sum(len(v) for v in info.values())
 
-        results[split_name] = split_results
+        p_bar.n = num_completed
+        p_bar.update()
+
+        if num_completed == total:
+            break
+
+        time.sleep(1)
 
     with open(f"{experiment_dir}/z3_results.json", "w+") as f:
-        json.dump(results, f)
+        json.dump(info, f)
 
 
 if __name__ == "__main__":

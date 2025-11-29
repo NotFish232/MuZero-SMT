@@ -22,7 +22,7 @@ class SMTDataset(Dataset):
         self: Self,
         benchmark: str,
         split_name: Mode,
-        split: dict[Mode, float],
+        split: dict[Mode, float] | None = None,
     ) -> None:
         """
         Args:
@@ -49,6 +49,8 @@ class SMTDataset(Dataset):
         if split_info_file.exists():
             self.split_info = json.load(open(split_info_file, "rt"))
         else:
+            # If there is no split file already, we create a split and write it to disk
+            assert split is not None
             self.split_info = self.create_benchmark_split(split)
             json.dump(self.split_info, open(split_info_file, "wt"))
 
