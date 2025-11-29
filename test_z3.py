@@ -101,8 +101,12 @@ def main() -> None:
             )
         )
 
+        num_successful = sum(x["successful"] for v in info.values() for x in v)
         num_completed = sum(len(v) for v in info.values())
 
+        p_bar.set_description(
+            f"%: {num_successful / num_completed if num_completed != 0 else 0: .3%}"
+        )
         p_bar.n = num_completed
         p_bar.update()
 
@@ -111,8 +115,16 @@ def main() -> None:
 
         time.sleep(1)
 
+    results = ray.get(
+        shared_storage.get_info_batch.remote(
+            [f"z3_{split_name}_results" for split_name in split.keys()]
+        )
+    )
+
+    ray.shutdown()
+
     with open(f"{experiment_dir}/z3_results.json", "w+") as f:
-        json.dump(info, f)
+        json.dump(results, f)
 
 
 if __name__ == "__main__":

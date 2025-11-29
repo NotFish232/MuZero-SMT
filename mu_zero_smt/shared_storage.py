@@ -6,7 +6,6 @@ import torch as T
 from typing_extensions import Any, Self
 
 
-
 class SharedStorage:
     """
     Class which run in a dedicated thread to store the network weights and some information.

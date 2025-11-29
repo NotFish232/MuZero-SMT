@@ -72,11 +72,14 @@ def main() -> None:
             )
         )
 
-        p_bar.n = len(info["test_results"])
-        p_bar.update()
+        num_successful = sum(x["successful"] for x in info["test_results"])
+        num_completed = len(info["test_results"])
 
-        if p_bar.n == 10:
-            break
+        p_bar.set_description(
+            f"%: {num_successful / num_completed if num_completed != 0 else 0: .3%}"
+        )
+        p_bar.n = num_completed
+        p_bar.update()
 
         if len(info["finished_test_workers"]) == config.num_test_workers:
             break
