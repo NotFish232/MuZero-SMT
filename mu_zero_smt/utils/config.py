@@ -1,4 +1,6 @@
+import json
 from dataclasses import dataclass
+from pathlib import Path
 
 from typing_extensions import Any
 
@@ -93,3 +95,11 @@ class MuZeroConfig:
     """
     temperature_start: float
     temperature_end: float
+
+
+def load_config(experiment_name: str) -> MuZeroConfig:
+    config_path = Path(__file__).parents[2] / "experiments" / f"{experiment_name}.json"
+
+    config = MuZeroConfig(**json.load(open(config_path)))
+
+    return config

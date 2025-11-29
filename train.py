@@ -1,4 +1,3 @@
-import json
 import os
 import pathlib
 import pickle
@@ -26,7 +25,7 @@ from mu_zero_smt.replay_buffer import Reanalyse, ReplayBuffer
 from mu_zero_smt.self_play import GameHistory, SelfPlay
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.trainer import Trainer
-from mu_zero_smt.utils.config import MuZeroConfig
+from mu_zero_smt.utils.config import MuZeroConfig, load_config
 
 
 class MuZero:
@@ -357,9 +356,7 @@ class MuZero:
 def main() -> None:
     experiment_name = sys.argv[1]
 
-    config_path = Path(__file__).parent / "experiments" / f"{experiment_name}.json"
-
-    config = MuZeroConfig(**json.load(open(config_path)))
+    config = load_config(experiment_name)
 
     muzero = MuZero(SMTEnvironment, config)
     muzero.train()

@@ -11,15 +11,13 @@ from tqdm import tqdm  # type: ignore
 from mu_zero_smt.environments.smt import SMTEnvironment
 from mu_zero_smt.self_play import SelfPlay
 from mu_zero_smt.shared_storage import SharedStorage
-from mu_zero_smt.utils.config import MuZeroConfig
+from mu_zero_smt.utils.config import load_config
 
 
 def main() -> None:
     experiment_name = sys.argv[1]
 
-    config_path = Path(__file__).parent / "experiments" / f"{experiment_name}.json"
-
-    config = MuZeroConfig(**json.load(open(config_path)))
+    config = load_config(experiment_name)
 
     checkpoint_dir = natsorted(
         f

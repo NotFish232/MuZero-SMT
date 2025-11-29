@@ -167,7 +167,7 @@ class SMTEnvironment(AbstractEnvironment):
 
         return {
             "id": self.dataset.idxs[self.selected_idx],
-            "name": self.dataset[self.selected_idx].name,
+            "name": self.dataset[self.selected_idx].stem,
             "tactic_history": self.tactics_applied,
             "time": self.time_spent,
             "result": result,
