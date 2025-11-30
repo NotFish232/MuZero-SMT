@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
         
-#SBATCH --job-name=smt_test
+#SBATCH --job-name=mu_zero_test
 #SBATCH --output=%x_%j.out
 #SBATCH --error=%x_%j.err
 
