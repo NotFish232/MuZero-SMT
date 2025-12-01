@@ -70,7 +70,7 @@ def main() -> None:
         for split_name in split.keys():
             dataset = SMTDataset(benchmark, split_name)
 
-            batch_size = math.ceil(len(benchmark) / config.num_test_workers)
+            batch_size = math.ceil(len(dataset) / config.num_test_workers)
 
             batch_start = worker_id * batch_size
             batch_end = min(batch_start + batch_size, len(dataset))
@@ -78,6 +78,9 @@ def main() -> None:
             worker_split[split_name] = (batch_start, batch_end)
 
         batch_splits.append(worker_split)
+    
+    print(batch_splits)
+    exit(1)
 
     total = len(SMTDataset(benchmark, "train", split).benchmark_files)
 
