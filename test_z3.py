@@ -83,14 +83,16 @@ def main() -> None:
 
     ray.init(num_cpus=config.num_test_workers)
 
-    shared_storage = ray.remote(SharedStorage).remote(
-        {f"z3_{split_name}_results": [] for split_name in split.keys()}, None
+    shared_storage = (
+        ray.remote(SharedStorage)
+        .options(name="shared_storage_worker", num_cpus=0)
+        .remote({f"z3_{split_name}_results": [] for split_name in split.keys()}, None)
     )
 
-    test_workers = [
-        eval_z3_worker.remote(benchmark, batch_split, solving_timeout, shared_storage)
-        for batch_split in batch_splits
-    ]
+    for batch_split in batch_splits:
+        eval_z3_worker.options(name="eval_z3_worker", num_cpus=1).remote(
+            benchmark, batch_split, solving_timeout, shared_storage
+        )
 
     p_bar = tqdm(total=total)
 
