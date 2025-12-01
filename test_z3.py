@@ -78,9 +78,6 @@ def main() -> None:
             worker_split[split_name] = (batch_start, batch_end)
 
         batch_splits.append(worker_split)
-    
-    print(batch_splits)
-    exit(1)
 
     total = len(SMTDataset(benchmark, "train", split).benchmark_files)
 
