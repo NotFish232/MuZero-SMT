@@ -1,4 +1,5 @@
 import random
+from collections import defaultdict
 from time import perf_counter
 
 import numpy as np
@@ -9,6 +10,51 @@ from mu_zero_smt.utils.utils import Mode
 
 from ..abstract_environment import AbstractEnvironment
 from .dataset import SMTDataset
+
+
+def map_raw_val(raw_val: float, typ: str) -> Any:
+    """
+    Maps a raw value with a type to the actual value fed into the network
+    For instance if the typ is bool, true if >= 0.5 else false
+    """
+
+    if typ == "bool":
+        return round(raw_val) == 1
+
+    raise NotImplementedError(f'Unknown value type: "{typ}"')
+
+
+def prep_tactic_params(
+    tactic_parameters: dict[str, dict[str, str]],
+) -> dict[str, list[tuple[str, str, int]]]:
+    """
+    Parses tactic parameters by assigning each an index and adding global parameters to the parameter of each tactic in a defaultdict
+    """
+
+    global_parameters = [
+        (k, v, i) for i, (k, v) in enumerate(tactic_parameters["global"].items())
+    ]
+
+    tactic_to_parameters: dict[str, list[tuple[str, str, int]]] = defaultdict(
+        lambda: global_parameters
+    )
+
+    idx = len(global_parameters)
+
+    for tactic_name, params in tactic_parameters.items():
+        if tactic_name == "global":
+            continue
+
+        full_parameters = list(global_parameters)
+
+        for param, typ in params.items():
+            full_parameters.append((param, typ, idx))
+
+            idx += 1
+
+        tactic_to_parameters[tactic_name] = full_parameters
+
+    return tactic_to_parameters
 
 
 class SMTEnvironment(AbstractEnvironment):
@@ -24,6 +70,7 @@ class SMTEnvironment(AbstractEnvironment):
         benchmark: str,
         tactics: list[str],
         probes: list[str],
+        tactic_parameters: dict[str, dict[str, str]],
         solving_timeout: float,
         max_num_tactics: int,
         split: dict[Mode, float],
@@ -34,14 +81,22 @@ class SMTEnvironment(AbstractEnvironment):
         self.benchmark = benchmark
         self.tactics = tactics
         self.probes = probes
+        self.tactic_parameters = tactic_parameters
+
+        # tactic_parameters maps tactic => map of parameters => type
+        # we also need index information to retrieve the value from the continuous parameters passed into step
+        # maps from tactic => list of (param name, type, idx)
+        self.tactic_to_params = prep_tactic_params(tactic_parameters)
+
         self.solving_timeout = solving_timeout
         self.max_num_tactics = max_num_tactics
+
         self.split = split
 
         self.dataset = SMTDataset(self.benchmark, self.mode, self.split)
 
         self.time_spent = 0.0
-        self.tactics_applied: list[tuple[str, list[float]]] = []
+        self.tactics_applied: list[tuple[str, dict[str, Any]]] = []
 
         self.selected_idx = -1
 
@@ -61,7 +116,7 @@ class SMTEnvironment(AbstractEnvironment):
 
     @override
     def step(
-        self: Self, action: int, params: np.ndarray
+        self: Self, action: int, raw_params: np.ndarray
     ) -> tuple[np.ndarray, float, bool]:
         """
         Apply action to the game.
@@ -73,16 +128,34 @@ class SMTEnvironment(AbstractEnvironment):
             The new observation, the reward and a boolean if the game has ended.
         """
 
-        timeout = params[0]
+
+        param_to_val = {}
+
+        for p_name, typ, idx in self.tactic_to_params[self.tactics[action]]:
+            # Timeout is special, its a fraction of the remaining time
+            if p_name == "timeout":
+                param_to_val[p_name] = max(
+                    int(raw_params[idx] * (self.solving_timeout - self.time_spent) * 1_000),
+                    10,
+                )
+            else:
+                param_to_val[p_name] = map_raw_val(raw_params[idx], typ)
 
         reward = 0.0
         done = False
 
-        self.tactics_applied.append((self.tactics[action], params.tolist()))
+        self.tactics_applied.append((self.tactics[action], param_to_val))
+
+        params_ref = z3.ParamsRef()
+        for param, val in param_to_val.items():
+            if param == "timeout":
+                continue
+
+            params_ref.set(param, val)
 
         acc_tactic = z3.TryFor(
-            z3.Tactic(self.tactics[action]),
-            max(int(timeout * (self.solving_timeout - self.time_spent) * 1_000), 10),
+            z3.WithParams(z3.Tactic(self.tactics[action]), params_ref),
+            param_to_val["timeout"],
         )
 
         start = perf_counter()

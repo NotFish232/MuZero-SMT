@@ -108,7 +108,7 @@ def sample_continuous_params(
         T.Tensor: The values in [0, 1] for each continuous parameter
     """
 
-    means = policy_logits[0, -continuous_action_space::2]
+    means = policy_logits[0, -continuous_action_space:]
 
     return means + T.randn(num_continuous_samples, continuous_action_space)
 

@@ -36,6 +36,20 @@
             "is-propositional",
             "is-qfbv"
         ],
+        "tactic_parameters": {
+            "global": {
+                "timeout": "special"
+            },
+            "simplify": {
+                "elim_and": "bool",
+                "som": "bool",
+                "blast_distinct": "bool",
+                "flat": "bool",
+                "hi_div0": "bool",
+                "local_ctx": "bool",
+                "hoist_mul": "bool"
+            }
+        },
         "solving_timeout": 60,
         "max_num_tactics": 10,
         "split": {
@@ -50,7 +64,7 @@
         17
     ],
     "discrete_action_space": 13,
-    "continuous_action_space": 1,
+    "continuous_action_space": 8,
     "stacked_observations": 0,
     "num_self_play_workers": 1,
     "num_eval_workers": 4,
