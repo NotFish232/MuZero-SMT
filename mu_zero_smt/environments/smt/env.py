@@ -128,14 +128,17 @@ class SMTEnvironment(AbstractEnvironment):
             The new observation, the reward and a boolean if the game has ended.
         """
 
-
         param_to_val = {}
 
         for p_name, typ, idx in self.tactic_to_params[self.tactics[action]]:
             # Timeout is special, its a fraction of the remaining time
             if p_name == "timeout":
                 param_to_val[p_name] = max(
-                    int(raw_params[idx] * (self.solving_timeout - self.time_spent) * 1_000),
+                    int(
+                        raw_params[idx]
+                        * (self.solving_timeout - self.time_spent)
+                        * 1_000
+                    ),
                     10,
                 )
             else:

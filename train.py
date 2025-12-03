@@ -70,6 +70,9 @@ class MuZero:
         self.checkpoint: dict[str, Any] = {
             "weights": None,
             "optimizer_state": None,
+            "eval_weights": None,
+            "best_weights": None,
+            "best_weights_percent": 0,
             # Metrics
             "finished_eval_workers": [],
             "self_play_results": [],
@@ -197,6 +200,8 @@ class MuZero:
         counter = 0
         keys = [
             "training_step",
+            "eval_weights",
+            "best_weights_percent",
             # Metrics
             "finished_eval_workers",
             "self_play_results",
@@ -231,15 +236,20 @@ class MuZero:
                 )
 
                 if len(info["finished_eval_workers"]) == self.config.num_eval_workers:
+                    percent_solved = sum(
+                        x["successful"] for x in info["eval_results"]
+                    ) / len(info["eval_results"])
+
+                    if percent_solved > info["best_weights_percent"]:
+                        self.shared_storage_worker.set_info_batch.remote(
+                            {
+                                "best_weights": info["eval_weights"],
+                                "best_weights_percent": percent_solved,
+                            }
+                        )
+
                     writer.add_scalar(
-                        "1.Metrics/2.Eval_Percent_Solved",
-                        (
-                            (
-                                sum(x["successful"] for x in info["eval_results"])
-                                / len(info["eval_results"])
-                            )
-                        ),
-                        counter,
+                        "1.Metrics/2.Eval_Percent_Solved", percent_solved, counter
                     )
                     self.shared_storage_worker.set_info_batch.remote(
                         {"eval_results": [], "finished_eval_workers": []}

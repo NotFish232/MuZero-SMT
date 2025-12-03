@@ -1,3 +1,4 @@
+import copy
 import math
 import random
 import time
@@ -16,6 +17,7 @@ from mu_zero_smt.models import (
     support_to_scalar,
 )
 from mu_zero_smt.models.mu_zero_network import MuZeroNetwork
+from mu_zero_smt.models.utils import dict_to_cpu
 from mu_zero_smt.replay_buffer import ReplayBuffer
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.utils.config import MuZeroConfig
@@ -91,8 +93,6 @@ class SelfPlay:
                 if replay_buffer is not None:
                     replay_buffer.save_game.remote(game_history, shared_storage)
             else:
-                # print(f"worker {self.worker_id} starting...")
-
                 ids = self.env.unique_episodes()
 
                 batch_size = math.ceil(len(ids) / self.config.num_eval_workers)
@@ -107,13 +107,17 @@ class SelfPlay:
                         f"{self.mode}_results", self.env.episode_stats()
                     )
 
-                    # print(f"worker {self.worker_id} completed {i - batch_start} ({batch_end - batch_start})")
+                # If primary worker, save eval weights
+                if self.mode == "eval" and self.worker_id == 0:
+                    shared_storage.set_info.remote(
+                        f"eval_weights",
+                        copy.deepcopy(dict_to_cpu(self.model.state_dict())),
+                    )
 
+                # Notify that this worker is done
                 shared_storage.update_info.remote(
                     f"finished_{self.mode}_workers", self.worker_id
                 )
-
-                # print(f"worker {self.worker_id} finished")
 
                 # Wait for all eval actors to finish and the main thread to clear it
                 while (
