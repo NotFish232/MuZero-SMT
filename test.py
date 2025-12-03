@@ -36,7 +36,7 @@ def main() -> None:
             {
                 "test_results": [],
                 "finished_test_workers": [],
-                "weights": checkpoint["weights"],
+                "weights": checkpoint["best_weights"],
                 "training_step": 0,
                 "terminate": False,
             },
