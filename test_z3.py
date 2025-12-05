@@ -39,7 +39,7 @@ def eval_z3_worker(
             end_time = perf_counter()
 
             shared_storage.update_info.remote(
-                f"z3_{split_name}_results",
+                split_name,
                 {
                     "id": dataset.idxs[idx],
                     "name": dataset[idx].stem,
@@ -86,7 +86,7 @@ def main() -> None:
     shared_storage = (
         ray.remote(SharedStorage)
         .options(name="shared_storage_worker", num_cpus=0)
-        .remote({f"z3_{split_name}_results": [] for split_name in split.keys()}, None)
+        .remote({split_name: [] for split_name in split.keys()}, None)
     )
 
     for batch_split in batch_splits:
@@ -97,11 +97,7 @@ def main() -> None:
     p_bar = tqdm(total=total)
 
     while True:
-        info = ray.get(
-            shared_storage.get_info_batch.remote(
-                [f"z3_{split_name}_results" for split_name in split.keys()]
-            )
-        )
+        info = ray.get(shared_storage.get_info_batch.remote(list(split.keys())))
 
         num_successful = sum(x["successful"] for v in info.values() for x in v)
         num_completed = sum(len(v) for v in info.values())
@@ -117,11 +113,7 @@ def main() -> None:
 
         time.sleep(1)
 
-    results = ray.get(
-        shared_storage.get_info_batch.remote(
-            [f"z3_{split_name}_results" for split_name in split.keys()]
-        )
-    )
+    results = ray.get(shared_storage.get_info_batch.remote(list(split.keys())))
 
     ray.shutdown()
 
