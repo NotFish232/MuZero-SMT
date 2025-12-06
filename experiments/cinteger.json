@@ -53,8 +53,8 @@
         "solving_timeout": 60,
         "max_num_tactics": 10,
         "split": {
-            "train": 0.15,
-            "eval": 0.05,
+            "train": 0.1,
+            "eval": 0.1,
             "test": 0.8
         }
     },
