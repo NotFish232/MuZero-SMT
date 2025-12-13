@@ -65,7 +65,7 @@
     ],
     "discrete_action_space": 13,
     "continuous_action_space": 8,
-    "stacked_observations": 0,
+    "stacked_observations": 3,
     "num_self_play_workers": 1,
     "num_eval_workers": 4,
     "num_test_workers": 8,

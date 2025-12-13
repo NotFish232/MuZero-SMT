@@ -602,7 +602,8 @@ class GameHistory:
         # Convert to positive index
         index = index % len(self.observation_history)
 
-        stacked_observations = self.observation_history[index].copy()
+        observation_history = [self.observation_history[index]]
+
         for past_observation_index in reversed(
             range(index - num_stacked_observations, index)
         ):
@@ -611,26 +612,24 @@ class GameHistory:
                 previous_observation = np.concatenate(
                     (
                         self.observation_history[past_observation_index],
-                        [
-                            np.ones_like(stacked_observations[0])
-                            * self.action_history[past_observation_index + 1]
-                            / action_space_size
-                        ],
-                    )
+                        np.ones_like(observation_history[0])
+                        * self.action_history[past_observation_index + 1]
+                        / action_space_size,
+                    ),
+                    axis=1,
                 )
             else:
                 previous_observation = np.concatenate(
                     (
-                        np.zeros_like(self.observation_history[index]),
-                        [np.zeros_like(stacked_observations[0])],
-                    )
+                        np.zeros_like(observation_history[0]),
+                        np.zeros_like(observation_history[0]),
+                    ),
+                    axis=1,
                 )
 
-            stacked_observations = np.concatenate(
-                (stacked_observations, previous_observation)
-            )
+            observation_history.append(previous_observation)
 
-        return stacked_observations
+        return np.concatenate(observation_history, axis=1)
 
 
 class MinMaxStats:
