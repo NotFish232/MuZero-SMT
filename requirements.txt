@@ -6,6 +6,7 @@ ray[default]
 seaborn
 tensorboard
 torch
+torch_geometric
 z3-solver
 zstandard
 tqdm
