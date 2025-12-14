@@ -10,6 +10,7 @@ from mu_zero_smt.utils.utils import Mode
 
 from ..abstract_environment import AbstractEnvironment
 from .dataset import SMTDataset
+from .embedding import build_graph
 
 
 def map_raw_val(raw_val: float, typ: str) -> Any:
@@ -69,7 +70,6 @@ class SMTEnvironment(AbstractEnvironment):
         *,
         benchmark: str,
         tactics: list[str],
-        probes: list[str],
         tactic_parameters: dict[str, dict[str, str]],
         solving_timeout: float,
         max_num_tactics: int,
@@ -80,7 +80,6 @@ class SMTEnvironment(AbstractEnvironment):
 
         self.benchmark = benchmark
         self.tactics = tactics
-        self.probes = probes
         self.tactic_parameters = tactic_parameters
 
         # tactic_parameters maps tactic => map of parameters => type
@@ -103,16 +102,7 @@ class SMTEnvironment(AbstractEnvironment):
         self.current_goal: z3.Goal
 
     def _get_observation(self: Self) -> np.ndarray:
-        values = np.zeros(len(self.probes) + 1, dtype=np.float64)
-
-        for i, probe in enumerate(self.probes):
-            probe_res = z3.Probe(probe)(self.current_goal)
-
-            values[i] = probe_res
-
-        values[len(self.probes)] = self.time_spent
-
-        return values.reshape(1, 1, -1)
+        return build_graph(self.current_goal)
 
     @override
     def step(
@@ -249,3 +239,5 @@ class SMTEnvironment(AbstractEnvironment):
             "result": result,
             "successful": result in ("SAT", "UNSAT"),
         }
+    
+

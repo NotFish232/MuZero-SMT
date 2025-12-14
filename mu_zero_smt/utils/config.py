@@ -18,14 +18,11 @@ class MuZeroConfig:
     env_config: dict[str, Any]
 
     ### Game
-    observation_shape: tuple[
-        int, int, int
-    ]  # Dimensions of the game observation, must be 3D (channel, height, width). For a 1D array, please reshape it to (1, 1, length of array)
+    observation_size: int  # Dimensions of the game observation, must be 3D (channel, height, width). For a 1D array, please reshape it to (1, 1, length of array)
     discrete_action_space: (
         int  # Fixed list of all possible actions. You should only edit the length
     )
     continuous_action_space: int  # Additional actions to consider
-    stacked_observations: int  # Number of previous observations and previous actions to add to the current observation
 
     ### Self-Play
     num_self_play_workers: int  # Number of simultaneous threads/workers self-playing to feed the replay buffer

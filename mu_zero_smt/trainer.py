@@ -15,7 +15,7 @@ from mu_zero_smt.models import (
     scalar_to_support,
     support_to_scalar,
 )
-from mu_zero_smt.models.ftc_network import FTCNetwork
+from mu_zero_smt.models.graph_network import GraphNetwork
 from mu_zero_smt.replay_buffer import ReplayBuffer
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.utils.config import MuZeroConfig
@@ -37,7 +37,7 @@ class Trainer:
         T.manual_seed(self.config.seed)
 
         # Initialize the network
-        self.model = FTCNetwork.from_config(self.config)
+        self.model = GraphNetwork.from_config(self.config)
         self.model.load_state_dict(copy.deepcopy(initial_checkpoint["weights"]))
         self.model.to(T.device("cpu"))
         self.model.train()
@@ -166,7 +166,6 @@ class Trainer:
         device = next(self.model.parameters()).device
 
         weight_batch = T.tensor(weight_batch.copy()).float().to(device)
-        observation_batch = T.tensor(np.array(observation_batch)).float().to(device)
         action_batch = T.tensor(action_batch).long().to(device).unsqueeze(-1)
         param_batch = T.tensor(np.array(param_batch), dtype=T.float32, device=device)
         target_value = T.tensor(target_value).float().to(device)

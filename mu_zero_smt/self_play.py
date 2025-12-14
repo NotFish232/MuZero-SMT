@@ -11,17 +11,17 @@ from typing_extensions import Any, Self, Type
 
 from mu_zero_smt.environments.abstract_environment import AbstractEnvironment
 from mu_zero_smt.models import (
-    FTCNetwork,
     one_hot_encode,
     sample_continuous_params,
     support_to_scalar,
 )
-from mu_zero_smt.models.mu_zero_network import MuZeroNetwork
+from mu_zero_smt.models.graph_network import GraphNetwork
 from mu_zero_smt.models.utils import dict_to_cpu
 from mu_zero_smt.replay_buffer import ReplayBuffer
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.utils.config import MuZeroConfig
 from mu_zero_smt.utils.utils import Mode
+from torch_geometric.data import Data # type: ignore
 
 
 class SelfPlay:
@@ -50,7 +50,7 @@ class SelfPlay:
         self.mode = mode
 
         # Initialize the network
-        self.model = FTCNetwork.from_config(self.config)
+        self.model = GraphNetwork.from_config(self.config)
         self.model.load_state_dict(initial_checkpoint["weights"])
         self.model.to(T.device("cpu"))
         self.model.eval()
@@ -173,16 +173,12 @@ class SelfPlay:
         with T.no_grad():
             while not done:
                 # Stack the last `self.config.stacked_observations` number of observations
-                stacked_observations = game_history.get_stacked_observations(
-                    -1,
-                    self.config.stacked_observations,
-                    self.config.discrete_action_space,
-                )
+                obs = game_history.observation_history[-1]
 
                 # Choose the next action based on MCTS' visit distributions and a temperature parameter
                 root = MCTS(self.config).run(
                     self.model,
-                    stacked_observations,
+                    obs,
                     True,
                 )
                 action, params = SelfPlay.select_action(root, temperature)
@@ -262,8 +258,8 @@ class MCTS:
 
     def run(
         self: Self,
-        model: MuZeroNetwork,
-        raw_observation: np.ndarray,
+        model: GraphNetwork,
+        raw_observation: Data,
         add_exploration_noise: bool,
     ) -> "MCTSNode":
         """
@@ -283,9 +279,7 @@ class MCTS:
         root = MCTSNode(0)
 
         # Convert the observation from a numpy array to a tensor
-        observation = T.tensor(
-            raw_observation, dtype=T.float32, device=next(model.parameters()).device
-        )
+
 
         # Get inital inference from model
         (
@@ -293,7 +287,7 @@ class MCTS:
             reward_support,
             policy_logits,
             hidden_state,
-        ) = model.initial_inference(observation)
+        ) = model.initial_inference([raw_observation])
 
         continuous_params = sample_continuous_params(
             policy_logits,
@@ -592,44 +586,6 @@ class GameHistory:
         else:
             self.root_values.append(-1)
 
-    def get_stacked_observations(
-        self: Self, index: int, num_stacked_observations: int, action_space_size: int
-    ) -> np.ndarray:
-        """
-        Generate a new observation with the observation at the index position
-        and num_stacked_observations past observations and actions stacked.
-        """
-        # Convert to positive index
-        index = index % len(self.observation_history)
-
-        observation_history = [self.observation_history[index]]
-
-        for past_observation_index in reversed(
-            range(index - num_stacked_observations, index)
-        ):
-            # Previous observation is the last observation + an array of the previous actions of same size as the observation
-            if past_observation_index >= 0:
-                previous_observation = np.concatenate(
-                    (
-                        self.observation_history[past_observation_index],
-                        np.ones_like(observation_history[0])
-                        * self.action_history[past_observation_index + 1]
-                        / action_space_size,
-                    ),
-                    axis=1,
-                )
-            else:
-                previous_observation = np.concatenate(
-                    (
-                        np.zeros_like(observation_history[0]),
-                        np.zeros_like(observation_history[0]),
-                    ),
-                    axis=1,
-                )
-
-            observation_history.append(previous_observation)
-
-        return np.concatenate(observation_history, axis=1)
 
 
 class MinMaxStats:

@@ -20,7 +20,7 @@ import ray
 from mu_zero_smt.environments.abstract_environment import AbstractEnvironment
 from mu_zero_smt.environments.smt import SMTEnvironment
 from mu_zero_smt.models import dict_to_cpu
-from mu_zero_smt.models.ftc_network import FTCNetwork
+from mu_zero_smt.models.graph_network import GraphNetwork
 from mu_zero_smt.replay_buffer import Reanalyse, ReplayBuffer
 from mu_zero_smt.self_play import GameHistory, SelfPlay
 from mu_zero_smt.shared_storage import SharedStorage
@@ -95,7 +95,7 @@ class MuZero:
 
         self.replay_buffer: dict[int, GameHistory] = {}
 
-        model = FTCNetwork.from_config(self.config)
+        model = GraphNetwork.from_config(self.config)
 
         self.checkpoint["weights"] = dict_to_cpu(model.state_dict())
 

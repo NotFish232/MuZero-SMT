@@ -4,6 +4,7 @@ import numpy as np
 from typing_extensions import Any, Self
 
 from mu_zero_smt.utils.utils import Mode
+from torch_geometric.data import Data #type: ignore
 
 
 class AbstractEnvironment(ABC):
@@ -22,7 +23,7 @@ class AbstractEnvironment(ABC):
     @abstractmethod
     def step(
         self: Self, action: int, params: np.ndarray
-    ) -> tuple[np.ndarray, float, bool]:
+    ) -> tuple[Data, float, bool]:
         """
         Apply action to the game.
 
@@ -35,7 +36,7 @@ class AbstractEnvironment(ABC):
         """
 
     @abstractmethod
-    def reset(self: Self, episode_id: int | None = None) -> np.ndarray:
+    def reset(self: Self, episode_id: int | None = None) -> Data:
         """
         Reset the game for a new game. If id is passed it should be the id of the current game
 

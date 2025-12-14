@@ -8,7 +8,7 @@ from ray.actor import ActorProxy
 from typing_extensions import TYPE_CHECKING, Any, Self
 
 from mu_zero_smt.models import support_to_scalar
-from mu_zero_smt.models.ftc_network import FTCNetwork
+from mu_zero_smt.models.graph_network import GraphNetwork
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.utils.config import MuZeroConfig
 
@@ -154,13 +154,7 @@ class ReplayBuffer:
                 entry, game_pos
             )
             index_batch.append([buffer_id, game_pos])
-            observation_batch.append(
-                entry.game_history.get_stacked_observations(
-                    game_pos,
-                    self.config.stacked_observations,
-                    self.config.discrete_action_space,
-                )
-            )
+            observation_batch.append(entry.game_history.observation_history[game_pos])
             action_batch.append(actions)
             param_batch.append(params)
             value_batch.append(values)
@@ -395,7 +389,7 @@ class Reanalyse:
         T.manual_seed(self.config.seed)
 
         # Initialize the network
-        self.model = FTCNetwork.from_config(config)
+        self.model = GraphNetwork.from_config(config)
         self.model.load_state_dict(initial_checkpoint["weights"])
         self.model.to(T.device("cpu"))
         self.model.eval()
@@ -425,22 +419,10 @@ class Reanalyse:
             ]
 
             # Use the last model to provide a fresher, stable n-step value (See paper appendix Reanalyze)
-            l_observations = np.array(
-                [
-                    entry.game_history.get_stacked_observations(
-                        i,
-                        self.config.stacked_observations,
-                        self.config.discrete_action_space,
-                    )
-                    for i in range(len(entry.game_history.root_values))
-                ]
-            )
-
-            observations = T.tensor(
-                l_observations,
-                dtype=T.float32,
-                device=next(self.model.parameters()).device,
-            )
+            observations = [
+                entry.game_history.observation_history[i]
+                for i in range(len(entry.game_history.root_values))
+            ]
 
             values = support_to_scalar(
                 self.model.initial_inference(observations)[0],
