@@ -77,6 +77,7 @@ class MuZero:
             "finished_eval_workers": [],
             "self_play_results": [],
             "eval_results": [],
+            "full_eval_results": [],
             "training_step": 0,
             # Statistics
             "num_played_games": 0,
@@ -225,10 +226,7 @@ class MuZero:
                 writer.add_scalar(
                     "1.Metrics/1.Self_Play_Percent_Solved",
                     (
-                        (
-                            sum(x["successful"] for x in info["self_play_results"])
-                            / len(info["self_play_results"])
-                        )
+                        np.mean([x["successful"] for x in info["self_play_results"]])
                         if len(info["self_play_results"]) > 0
                         else 0
                     ),
@@ -236,9 +234,9 @@ class MuZero:
                 )
 
                 if len(info["finished_eval_workers"]) == self.config.num_eval_workers:
-                    percent_solved = sum(
-                        x["successful"] for x in info["eval_results"]
-                    ) / len(info["eval_results"])
+                    percent_solved = np.mean(
+                        [x["successful"] for x in info["eval_results"]]
+                    )
 
                     if percent_solved > info["best_weights_percent"]:
                         self.shared_storage_worker.set_info_batch.remote(
@@ -250,6 +248,10 @@ class MuZero:
 
                     writer.add_scalar(
                         "1.Metrics/2.Eval_Percent_Solved", percent_solved, counter
+                    )
+
+                    self.shared_storage_worker.update_info.remote(
+                        "full_eval_results", info["eval_results"]
                     )
                     self.shared_storage_worker.set_info_batch.remote(
                         {"eval_results": [], "finished_eval_workers": []}

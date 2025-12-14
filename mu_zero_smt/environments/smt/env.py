@@ -4,7 +4,7 @@ from time import perf_counter
 
 import numpy as np
 import z3  # type: ignore
-from typing_extensions import Any, Self, override
+from typing_extensions import Any, Self, override, Literal
 
 from mu_zero_smt.utils.utils import Mode
 

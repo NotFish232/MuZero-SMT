@@ -144,7 +144,7 @@ class SelfPlay:
                     < self.config.training_steps
                     and not ray.get(shared_storage.get_info.remote("terminate"))
                 ):
-                    time.sleep(0.5)
+                    time.sleep(1)
 
         self.env.close()
 
