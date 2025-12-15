@@ -11,6 +11,7 @@ from mu_zero_smt.utils.utils import Mode
 from ..abstract_environment import AbstractEnvironment
 from .dataset import SMTDataset
 from .embedding import build_graph
+import time
 
 
 def map_raw_val(raw_val: float, typ: str) -> Any:
@@ -74,6 +75,7 @@ class SMTEnvironment(AbstractEnvironment):
         solving_timeout: float,
         max_num_tactics: int,
         split: dict[Mode, float],
+        embedding_size: int,
     ) -> None:
         self.mode = mode
         random.seed(seed)
@@ -101,8 +103,10 @@ class SMTEnvironment(AbstractEnvironment):
 
         self.current_goal: z3.Goal
 
+        self.embedding_size = embedding_size
+
     def _get_observation(self: Self) -> np.ndarray:
-        return build_graph(self.current_goal)
+        return build_graph(self.current_goal, self.embedding_size)
 
     @override
     def step(
@@ -239,5 +243,3 @@ class SMTEnvironment(AbstractEnvironment):
             "result": result,
             "successful": result in ("SAT", "UNSAT"),
         }
-    
-

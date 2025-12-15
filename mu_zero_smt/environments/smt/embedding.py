@@ -1,19 +1,16 @@
 import z3  # type: ignore
 from torch_geometric.data import Data  # type: ignore
 import torch as T
-from torch.nn import functional  as F
+from torch.nn import functional as F
 
 
-z3_op_types = sorted(v for k, v in z3.__dict__.items() if k.startswith("Z3_OP"))
+Z3_OP_TYPES = sorted(v for k, v in z3.__dict__.items() if k.startswith("Z3_OP"))
 
 # Fast lookup from ast type and op type to id
-z3_op_to_id = dict(zip(z3_op_types, range(len(z3_op_types))))
+Z3_OP_TO_ID = dict(zip(Z3_OP_TYPES, range(len(Z3_OP_TYPES))))
 
 
-num_variable_names = 2**9 - len(z3_op_to_id)
-
-
-def build_graph(ast: z3.AstVector) -> Data:
+def build_graph(ast: z3.AstVector, embedding_size: int) -> Data:
     """
     Constructs a graph from a smt formula
 
@@ -24,10 +21,16 @@ def build_graph(ast: z3.AstVector) -> Data:
           Data: The embeddings of each node and the edges.
     """
 
+    assert len(Z3_OP_TYPES) < embedding_size
+
+    num_variable_names = embedding_size - len(Z3_OP_TYPES)
+
     def _traverse_tree(
         expr_ref: z3.ExprRef,
+        parent: int,
         nodes: list[tuple[str | None, int]],
-        edges: list[tuple[int, int]],
+        edges: set[tuple[int, int]],
+        visited: set[int],
         var_freq: dict[str, int],
     ) -> None:
         """
@@ -35,10 +38,19 @@ def build_graph(ast: z3.AstVector) -> Data:
 
         Args:
             expr_ref (z3.ExprRef): The current expression being parsed
+            parent (int): The index of the parent of this expression
             nodes (list[tuple[str | None, int]]): Previous nodes, where each node is a string repr if its an identifier and the op id
             edges (list[tuple[int, int]]): The edges between nodes
+            visited (set[int]): A set of visited expression
             var_freq (dict[str, int]): The frequency of each variable, truncated variables are those with less freq
         """
+
+        node_id = expr_ref.get_id()
+
+        if node_id in visited:
+            return
+
+        visited.add(node_id)
 
         expr_str = None
 
@@ -46,29 +58,29 @@ def build_graph(ast: z3.AstVector) -> Data:
         if expr_ref.decl().kind() == z3.Z3_OP_UNINTERPRETED:
             expr_str = expr_ref.decl().name()
 
-            if expr_str not in var_freq:
-                var_freq[expr_str] = 0
-            var_freq[expr_str] += 1
+            var_freq[expr_str] = var_freq.get(expr_str, 0) + 1
 
-        op_id = z3_op_to_id[expr_ref.decl().kind()]
+        op_id = Z3_OP_TO_ID[expr_ref.decl().kind()]
 
+        # New expression
         node_idx = len(nodes)
+
         nodes.append((expr_str, op_id))
 
+        if parent != -1:
+            edges.add((parent, node_idx))
+
         for child_ref in expr_ref.children():
-            next_idx = len(nodes)
-
-            _traverse_tree(child_ref, nodes, edges, var_freq)
-
-            edges.append((node_idx, next_idx))
+            _traverse_tree(child_ref, node_idx, nodes, edges, visited, var_freq)
 
     nodes: list[tuple[str | None, int]] = []
-    edges: list[tuple[int, int]] = []
+    edges: set[tuple[int, int]] = set()
+    visited: set[int] = set()
 
     var_freq: dict[str, int] = {}
 
     for ref in ast:
-        _traverse_tree(ref, nodes, edges, var_freq)
+        _traverse_tree(ref, -1, nodes, edges, visited, var_freq)
 
     var_to_id = {}
 
@@ -82,7 +94,7 @@ def build_graph(ast: z3.AstVector) -> Data:
     node_embeddings = []
 
     for name, op_id in nodes:
-        op_embedding = F.one_hot(T.tensor(op_id), len(z3_op_types))
+        op_embedding = F.one_hot(T.tensor(op_id), len(Z3_OP_TYPES))
 
         var_embedding = T.zeros(num_variable_names)
 
@@ -93,7 +105,6 @@ def build_graph(ast: z3.AstVector) -> Data:
         node_embedding = T.concat((op_embedding, var_embedding))
 
         node_embeddings.append(node_embedding)
-    
 
     if len(node_embeddings) > 0:
         node_embeddings_tensor = T.stack(node_embeddings)
@@ -102,7 +113,7 @@ def build_graph(ast: z3.AstVector) -> Data:
 
     # Add the other direction of edges and transpose + make it contiguous
     if len(edges) > 0:
-        edges_tensor = T.tensor(edges)
+        edges_tensor = T.tensor(list(edges))
         edges_tensor = T.concat((edges_tensor, edges_tensor.flip(-1)))
         edges_tensor = edges_tensor.T.contiguous()
     else:

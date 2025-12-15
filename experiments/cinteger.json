@@ -32,6 +32,7 @@
                 "hoist_mul": "bool"
             }
         },
+        "embedding_size": 384,
         "solving_timeout": 60,
         "max_num_tactics": 10,
         "split": {
@@ -40,12 +41,12 @@
             "test": 0.8
         }
     },
-    "observation_size": 512,
+    "observation_size": 384,
     "discrete_action_space": 13,
     "continuous_action_space": 8,
     "num_self_play_workers": 1,
-    "num_eval_workers": 2,
-    "num_test_workers": 6,
+    "num_eval_workers": 6,
+    "num_test_workers": 8,
     "num_simulations": 500,
     "num_continuous_samples": 2,
     "discount": 1,
