@@ -1,4 +1,5 @@
 import json
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,14 +19,12 @@ class MuZeroConfig:
     env_config: dict[str, Any]
 
     ### Game
-    observation_shape: tuple[
-        int, int, int
-    ]  # Dimensions of the game observation, must be 3D (channel, height, width). For a 1D array, please reshape it to (1, 1, length of array)
+    observation_size: int  # Dimensions of the game observation, must be 3D (channel, height, width). For a 1D array, please reshape it to (1, 1, length of array)
     discrete_action_space: (
         int  # Fixed list of all possible actions. You should only edit the length
     )
     continuous_action_space: int  # Additional actions to consider
-    stacked_observations: int  # Number of previous observations and previous actions to add to the current observation
+    stacked_observations: int
 
     ### Self-Play
     num_self_play_workers: int  # Number of simultaneous threads/workers self-playing to feed the replay buffer
@@ -45,17 +44,10 @@ class MuZeroConfig:
     pb_c_init: float
 
     ### Network
+    network_type: str
+    network_args: dict[str, Any]
     support_size: int  # Value and reward are scaled (with almost sqrt) and encoded on a vector with a range of -support_size to support_size. Choose it so that support_size <= sqrt(max(abs(discounted reward)))
     # Fully Connected Network
-    encoding_size: int
-    fc_representation_layers: list[
-        int
-    ]  # Define the hidden layers in the representation network
-    fc_dynamics_layers: list[int]  # Define the hidden layers in the dynamics network
-    fc_reward_layers: list[int]  # Define the hidden layers in the reward network
-    fc_value_layers: list[int]  # Define the hidden layers in the value network
-    fc_policy_layers: list[int]  # Define the hidden layers in the policy network
-
     ### Training
     experiment_name: str
     training_steps: (
@@ -97,9 +89,15 @@ class MuZeroConfig:
     temperature_end: float
 
 
-def load_config(experiment_name: str) -> MuZeroConfig:
-    config_path = Path(__file__).parents[2] / "experiments" / f"{experiment_name}.json"
+def load_config() -> MuZeroConfig:
+    if len(sys.argv) < 2:
+        raise ValueError("config path must be passed as first argument")
 
-    config = MuZeroConfig(**json.load(open(config_path)))
+    path = Path(sys.argv[1])
+
+    if not path.exists() or not path.is_file():
+        raise ValueError(f"{path} is not a valid path to a config")
+
+    config = MuZeroConfig(**json.load(open(path)))
 
     return config

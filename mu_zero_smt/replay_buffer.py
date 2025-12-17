@@ -8,9 +8,10 @@ from ray.actor import ActorProxy
 from typing_extensions import TYPE_CHECKING, Any, Self
 
 from mu_zero_smt.models import support_to_scalar
-from mu_zero_smt.models.ftc_network import FTCNetwork
+from mu_zero_smt.models.graph_network import MuZeroNetwork
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.utils.config import MuZeroConfig
+from mu_zero_smt.utils.utils import collate_observations
 
 if TYPE_CHECKING:
     from mu_zero_smt.self_play import GameHistory
@@ -354,12 +355,7 @@ class ReplayBuffer:
                 target_values.append(0)
                 target_rewards.append(entry.game_history.reward_history[current_index])
                 # Uniform policy
-                target_policies.append(
-                    [
-                        1 / len(entry.game_history.child_visits[0])
-                        for _ in range(len(entry.game_history.child_visits[0]))
-                    ]
-                )
+                target_policies.append([0] * len(entry.game_history.child_visits[0]))
                 actions.append(entry.game_history.action_history[current_index])
                 params.append(entry.game_history.param_history[current_index])
             else:
@@ -367,12 +363,7 @@ class ReplayBuffer:
                 target_values.append(0)
                 target_rewards.append(0)
                 # Uniform policy
-                target_policies.append(
-                    [
-                        1 / len(entry.game_history.child_visits[0])
-                        for _ in range(len(entry.game_history.child_visits[0]))
-                    ]
-                )
+                target_policies.append([0] * len(entry.game_history.child_visits[0]))
                 actions.append(
                     np.random.choice(range(self.config.discrete_action_space))
                 )
@@ -395,7 +386,7 @@ class Reanalyse:
         T.manual_seed(self.config.seed)
 
         # Initialize the network
-        self.model = FTCNetwork.from_config(config)
+        self.model = MuZeroNetwork.from_config(config)
         self.model.load_state_dict(initial_checkpoint["weights"])
         self.model.to(T.device("cpu"))
         self.model.eval()
@@ -425,7 +416,7 @@ class Reanalyse:
             ]
 
             # Use the last model to provide a fresher, stable n-step value (See paper appendix Reanalyze)
-            l_observations = np.array(
+            observations = collate_observations(
                 [
                     entry.game_history.get_stacked_observations(
                         i,
@@ -434,12 +425,6 @@ class Reanalyse:
                     )
                     for i in range(len(entry.game_history.root_values))
                 ]
-            )
-
-            observations = T.tensor(
-                l_observations,
-                dtype=T.float32,
-                device=next(self.model.parameters()).device,
             )
 
             values = support_to_scalar(

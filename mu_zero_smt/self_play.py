@@ -7,21 +7,21 @@ import numpy as np
 import ray
 import torch as T
 from ray.actor import ActorProxy
+from torch_geometric.data import Data  # type: ignore
 from typing_extensions import Any, Self, Type
 
-from mu_zero_smt.environments.abstract_environment import AbstractEnvironment
+from mu_zero_smt.environments.base_environment import BaseEnvironment
 from mu_zero_smt.models import (
-    FTCNetwork,
     one_hot_encode,
     sample_continuous_params,
     support_to_scalar,
 )
-from mu_zero_smt.models.mu_zero_network import MuZeroNetwork
+from mu_zero_smt.models.graph_network import MuZeroNetwork
 from mu_zero_smt.models.utils import dict_to_cpu
 from mu_zero_smt.replay_buffer import ReplayBuffer
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.utils.config import MuZeroConfig
-from mu_zero_smt.utils.utils import Mode
+from mu_zero_smt.utils.utils import RawObservation, RunMode, collate_observations
 
 
 class SelfPlay:
@@ -32,8 +32,8 @@ class SelfPlay:
     def __init__(
         self: Self,
         initial_checkpoint: dict[str, Any],
-        Environment: Type[AbstractEnvironment],
-        mode: Mode,
+        Environment: Type[BaseEnvironment],
+        mode: RunMode,
         config: MuZeroConfig,
         seed: int,
         worker_id: int,
@@ -50,7 +50,7 @@ class SelfPlay:
         self.mode = mode
 
         # Initialize the network
-        self.model = FTCNetwork.from_config(self.config)
+        self.model = MuZeroNetwork.from_config(self.config)
         self.model.load_state_dict(initial_checkpoint["weights"])
         self.model.to(T.device("cpu"))
         self.model.eval()
@@ -110,7 +110,7 @@ class SelfPlay:
                 # If primary worker, save eval weights
                 if self.mode == "eval" and self.worker_id == 0:
                     shared_storage.set_info.remote(
-                        f"eval_weights",
+                        "eval_weights",
                         copy.deepcopy(dict_to_cpu(self.model.state_dict())),
                     )
 
@@ -263,7 +263,7 @@ class MCTS:
     def run(
         self: Self,
         model: MuZeroNetwork,
-        raw_observation: np.ndarray,
+        raw_observation: RawObservation,
         add_exploration_noise: bool,
     ) -> "MCTSNode":
         """
@@ -283,21 +283,18 @@ class MCTS:
         root = MCTSNode(0)
 
         # Convert the observation from a numpy array to a tensor
-        observation = T.tensor(
-            raw_observation, dtype=T.float32, device=next(model.parameters()).device
-        )
 
         # Get inital inference from model
         (
             value_support,
             reward_support,
             policy_logits,
+            continuous_logits,
             hidden_state,
-        ) = model.initial_inference(observation)
+        ) = model.initial_inference(collate_observations([raw_observation]))
 
         continuous_params = sample_continuous_params(
-            policy_logits,
-            self.config.continuous_action_space,
+            continuous_logits,
             self.config.num_continuous_samples,
         )
 
@@ -309,7 +306,6 @@ class MCTS:
         root.expand(
             hidden_state,
             reward,
-            self.config.discrete_action_space,
             policy_logits,
             continuous_params,
         )
@@ -335,25 +331,28 @@ class MCTS:
             # Calculate the new hidden state, and the policy / reward of that node based on the parent's hiden state
             parent = search_path[-2]
 
-            value_support, reward_support, policy_logits, hidden_state = (
-                model.recurrent_inference(
-                    parent.hidden_state,
-                    T.concat(
-                        (
-                            one_hot_encode(
-                                T.tensor([[action]], device=device),
-                                self.config.discrete_action_space,
-                            ),
-                            continuous_params.unsqueeze(0),
+            (
+                value_support,
+                reward_support,
+                policy_logits,
+                continuous_logits,
+                hidden_state,
+            ) = model.recurrent_inference(
+                parent.hidden_state,
+                T.concat(
+                    (
+                        one_hot_encode(
+                            T.tensor([[action]], device=device),
+                            self.config.discrete_action_space,
                         ),
-                        dim=1,
+                        continuous_params.unsqueeze(0),
                     ),
-                )
+                    dim=1,
+                ),
             )
 
             continuous_params = sample_continuous_params(
-                policy_logits,
-                self.config.continuous_action_space,
+                continuous_logits,
                 self.config.num_continuous_samples,
             )
 
@@ -365,7 +364,6 @@ class MCTS:
             node.expand(
                 hidden_state,
                 reward,
-                self.config.discrete_action_space,
                 policy_logits,
                 continuous_params,
             )
@@ -507,7 +505,6 @@ class MCTSNode:
         self: Self,
         hidden_state: T.Tensor,
         reward: float,
-        action_space: int,
         policy_logits: T.Tensor,
         continous_params: T.Tensor,
     ) -> None:
@@ -518,7 +515,6 @@ class MCTSNode:
         Args:
             hidden_state (torch.Tensor): The tensor encoding of the current state from the representation network
             reward (float): The reward received at this state
-            action_space (int) The available actions at the current state (might not all be legal)
             policy_logits (torch.Tensor): Logits of the policy for the current state
         """
 
@@ -526,10 +522,10 @@ class MCTSNode:
         self.reward = reward
 
         # Convert logits to values through softmax and mask out actions not in action space
-        policy_values = T.softmax(policy_logits[0, :action_space], dim=0).tolist()
+        policy_values = T.softmax(policy_logits[0], dim=0).tolist()
 
         # Initialize children with the probability predicted by the policy
-        for action, policy_prob in zip(range(action_space), policy_values):
+        for action, policy_prob in zip(range(policy_logits.shape[1]), policy_values):
             if continous_params.numel() == 0:
                 self.children[action] = [(MCTSNode(policy_prob), T.empty(0))]
             else:
@@ -566,7 +562,7 @@ class GameHistory:
     """
 
     def __init__(self: Self) -> None:
-        self.observation_history: list[np.ndarray] = []
+        self.observation_history: list[RawObservation] = []
         self.action_history: list[int] = []
         self.param_history: list[np.ndarray] = []
         self.reward_history: list[float] = []
@@ -594,7 +590,10 @@ class GameHistory:
 
     def get_stacked_observations(
         self: Self, index: int, num_stacked_observations: int, action_space_size: int
-    ) -> np.ndarray:
+    ) -> RawObservation:
+        if isinstance(self.observation_history[index], Data):
+            return self.observation_history[index]
+
         """
         Generate a new observation with the observation at the index position
         and num_stacked_observations past observations and actions stacked.

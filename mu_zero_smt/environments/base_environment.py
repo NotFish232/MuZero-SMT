@@ -1,12 +1,13 @@
 from abc import ABC, abstractmethod
 
 import numpy as np
+from torch_geometric.data import Data  # type: ignore
 from typing_extensions import Any, Self
 
-from mu_zero_smt.utils.utils import Mode
+from mu_zero_smt.utils.utils import RawObservation, RunMode
 
 
-class AbstractEnvironment(ABC):
+class BaseEnvironment(ABC):
     """
     Inherit this class for muzero to play
     """
@@ -14,7 +15,7 @@ class AbstractEnvironment(ABC):
     @abstractmethod
     def __init__(
         self: Self,
-        mode: Mode,
+        mode: RunMode,
         seed: int | None = None,
     ) -> None:
         pass
@@ -22,7 +23,7 @@ class AbstractEnvironment(ABC):
     @abstractmethod
     def step(
         self: Self, action: int, params: np.ndarray
-    ) -> tuple[np.ndarray, float, bool]:
+    ) -> tuple[RawObservation, float, bool]:
         """
         Apply action to the game.
 
@@ -35,7 +36,7 @@ class AbstractEnvironment(ABC):
         """
 
     @abstractmethod
-    def reset(self: Self, episode_id: int | None = None) -> np.ndarray:
+    def reset(self: Self, episode_id: int | None = None) -> RawObservation:
         """
         Reset the game for a new game. If id is passed it should be the id of the current game
 

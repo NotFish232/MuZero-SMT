@@ -1,6 +1,5 @@
 import json
 import math
-import sys
 import time
 from pathlib import Path
 from time import perf_counter
@@ -13,13 +12,13 @@ from tqdm import tqdm  # type: ignore
 from mu_zero_smt.environments.smt.dataset import SMTDataset
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.utils.config import load_config
-from mu_zero_smt.utils.utils import Mode
+from mu_zero_smt.utils.utils import RunMode
 
 
 @ray.remote
 def eval_z3_worker(
     benchmark: str,
-    batch_split: dict[Mode, tuple[int, int]],
+    batch_split: dict[RunMode, tuple[int, int]],
     solving_timeout: float,
     shared_storage: ActorProxy[SharedStorage],
 ) -> None:
@@ -51,9 +50,7 @@ def eval_z3_worker(
 
 
 def main() -> None:
-    experiment_name = sys.argv[1]
-
-    config = load_config(experiment_name)
+    config = load_config()
 
     experiment_dir = Path(__file__).parent / "results" / config.experiment_name
     experiment_dir.mkdir(exist_ok=True, parents=True)

@@ -10,7 +10,7 @@ from torch.utils.data import Dataset
 from tqdm import tqdm  # type: ignore
 from typing_extensions import Self
 
-from mu_zero_smt.utils.utils import Mode
+from mu_zero_smt.utils.utils import RunMode
 
 SMT_LIB_RELEASE = "https://zenodo.org/records/16740866"
 
@@ -21,8 +21,8 @@ class SMTDataset(Dataset):
     def __init__(
         self: Self,
         benchmark: str,
-        split_name: Mode,
-        split: dict[Mode, float] | None = None,
+        split_name: RunMode,
+        split: dict[RunMode, float] | None = None,
     ) -> None:
         """
         Args:
@@ -109,8 +109,8 @@ class SMTDataset(Dataset):
 
     def create_benchmark_split(
         self: Self,
-        split: dict[Mode, float],
-    ) -> dict[Mode, list[int]]:
+        split: dict[RunMode, float],
+    ) -> dict[RunMode, list[int]]:
         idxs = T.randperm(len(self.benchmark_files))
 
         split_infos = {}

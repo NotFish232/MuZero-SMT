@@ -1,7 +1,6 @@
 import os
 import pathlib
 import pickle
-import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -17,10 +16,10 @@ os.environ["RAY_DEDUP_LOGS"] = "0"
 
 import ray
 
-from mu_zero_smt.environments.abstract_environment import AbstractEnvironment
+from mu_zero_smt.environments.base_environment import BaseEnvironment
 from mu_zero_smt.environments.smt import SMTEnvironment
 from mu_zero_smt.models import dict_to_cpu
-from mu_zero_smt.models.ftc_network import FTCNetwork
+from mu_zero_smt.models.graph_network import MuZeroNetwork
 from mu_zero_smt.replay_buffer import Reanalyse, ReplayBuffer
 from mu_zero_smt.self_play import GameHistory, SelfPlay
 from mu_zero_smt.shared_storage import SharedStorage
@@ -46,7 +45,7 @@ class MuZero:
 
     def __init__(
         self: Self,
-        Environment: Type[AbstractEnvironment],
+        Environment: Type[BaseEnvironment],
         config: MuZeroConfig,
     ) -> None:
 
@@ -89,13 +88,14 @@ class MuZero:
             "value_loss": 0,
             "reward_loss": 0,
             "policy_loss": 0,
+            "param_loss": 0,
             # Termination condition
             "terminate": False,
         }
 
         self.replay_buffer: dict[int, GameHistory] = {}
 
-        model = FTCNetwork.from_config(self.config)
+        model = MuZeroNetwork.from_config(self.config)
 
         self.checkpoint["weights"] = dict_to_cpu(model.state_dict())
 
@@ -168,9 +168,9 @@ class MuZero:
         ]
 
         # Launch workers
-        self.reanalyse_worker.reanalyse.remote(
-            self.replay_buffer_worker, self.shared_storage_worker
-        )
+        # self.reanalyse_worker.reanalyse.remote(
+        #     self.replay_buffer_worker, self.shared_storage_worker
+        # )
 
         self.training_worker.continuous_update_weights.remote(
             self.replay_buffer_worker, self.shared_storage_worker
@@ -217,6 +217,7 @@ class MuZero:
             "value_loss",
             "reward_loss",
             "policy_loss",
+            "param_loss",
         ]
         info = ray.get(self.shared_storage_worker.get_info_batch.remote(keys))
         try:
@@ -287,9 +288,10 @@ class MuZero:
                 writer.add_scalar(
                     "3.Loss/1.Total_weighted_loss", info["total_loss"], counter
                 )
-                writer.add_scalar("3.Loss/Value_loss", info["value_loss"], counter)
-                writer.add_scalar("3.Loss/Reward_loss", info["reward_loss"], counter)
-                writer.add_scalar("3.Loss/Policy_loss", info["policy_loss"], counter)
+                writer.add_scalar("3.Loss/2.Value_loss", info["value_loss"], counter)
+                writer.add_scalar("3.Loss/3.Reward_loss", info["reward_loss"], counter)
+                writer.add_scalar("3.Loss/4.Policy_loss", info["policy_loss"], counter)
+                writer.add_scalar("3.Loss/5.Param_loss", info["param_loss"], counter)
 
                 counter += 1
 
@@ -366,9 +368,8 @@ class MuZero:
 
 
 def main() -> None:
-    experiment_name = sys.argv[1]
 
-    config = load_config(experiment_name)
+    config = load_config()
 
     muzero = MuZero(SMTEnvironment, config)
     muzero.train()

@@ -1,5 +1,4 @@
 import json
-import sys
 import time
 from pathlib import Path
 
@@ -15,9 +14,7 @@ from mu_zero_smt.utils.config import load_config
 
 
 def main() -> None:
-    experiment_name = sys.argv[1]
-
-    config = load_config(experiment_name)
+    config = load_config()
 
     checkpoint_dir = natsorted(
         f

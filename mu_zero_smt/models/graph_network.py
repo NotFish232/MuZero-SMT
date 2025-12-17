@@ -1,4 +1,8 @@
 import torch as T
+from torch import nn
+from torch.nn import functional as F
+from torch_geometric import nn as TGnn  # type: ignore
+from torch_geometric.data import Batch  # type: ignore
 from typing_extensions import Self, override
 
 from mu_zero_smt.utils.config import MuZeroConfig
@@ -7,15 +11,38 @@ from .mu_zero_network import MuZeroNetwork
 from .utils import mlp
 
 
-class FTCNetwork(MuZeroNetwork):
+class GraphEncoder(nn.Module):
+    def __init__(
+        self: Self, in_channels: int, hidden_channels: int, out_channels: int
+    ) -> None:
+        super().__init__()
+        self.conv1 = TGnn.GCNConv(in_channels, hidden_channels)
+        self.conv2 = TGnn.GCNConv(hidden_channels, hidden_channels)
+        self.lin = nn.Linear(hidden_channels, out_channels)
+
+    def forward(self, x: T.Tensor, edge_index: T.Tensor, batch: T.Tensor) -> T.Tensor:
+        # Node embeddings
+        x = self.conv1(x, edge_index)
+        x = F.relu(x)
+        x = self.conv2(x, edge_index)
+        x = F.relu(x)
+
+        # Graph embedding (pool nodes → graph)
+        x = TGnn.pool.global_mean_pool(x, batch)
+
+        # Optional projection
+        x = self.lin(x)
+        return x
+
+
+class GraphNetwork(MuZeroNetwork):
     @staticmethod
-    def from_config(config: MuZeroConfig) -> "FTCNetwork":
-        return FTCNetwork(
+    def from_config(config: MuZeroConfig) -> "GraphNetwork":
+        return GraphNetwork(
             observation_size=config.observation_size,
             discrete_action_size=config.discrete_action_space,
             continuous_action_size=config.continuous_action_space,
             support_size=config.support_size,
-            stacked_observations=config.stacked_observations,
             **config.network_args
         )
 
@@ -28,10 +55,8 @@ class FTCNetwork(MuZeroNetwork):
         fc_reward_layers: list[int],
         fc_value_layers: list[int],
         fc_policy_layers: list[int],
-        fc_representation_layers: list[int],
         fc_dynamics_layers: list[int],
         support_size: int,
-        stacked_observations: int,
     ) -> None:
         super().__init__()
 
@@ -47,10 +72,8 @@ class FTCNetwork(MuZeroNetwork):
         # Input is a stack of `stacked_observations` number previous observations
         # + the current observation
         # + a `stacked_observations` number of frames where all elements are the action taken
-        self.representation_network = mlp(
-            (2 * stacked_observations + 1) * observation_size,
-            fc_representation_layers,
-            self.encoded_state_size,
+        self.representation_network = GraphEncoder(
+            observation_size, observation_size // 2, self.encoded_state_size
         )
 
         # Dynamics state transition network
@@ -127,12 +150,12 @@ class FTCNetwork(MuZeroNetwork):
 
         return policy_discrete_logits, policy_continuous_logits, value
 
-    def representation(self: Self, observation: T.Tensor) -> T.Tensor:
+    def representation(self: Self, observation: Batch) -> T.Tensor:
         """
         Creates the representation of the observation using the representation network
 
         Args:
-            observation (T.Tensor): The observation associated with the current state
+            observation (Data): The observation associated with the current state
 
         Returns:
             T.Tensor: The encoded state representation of the current observation
@@ -142,7 +165,7 @@ class FTCNetwork(MuZeroNetwork):
 
         # encoded_state: (batch size, encoded state size)
         encoded_state = self.representation_network(
-            observation.view(observation.shape[0], -1)
+            observation.x, observation.edge_index, observation.batch
         )
 
         # Scale encoded state between [0, 1] (See appendix paper Training)
@@ -165,11 +188,11 @@ class FTCNetwork(MuZeroNetwork):
         Using the dynamics network, predicts the next hidden state and reward associated with the ucrrent state
 
         Args:
-            encoded_state (T.Tensor): The current hidden state
-            action (T.Tensor): The action being taken in the current state
+            encoded_state (torch.Tensor): The current hidden state
+            action (torch.Tensor): The action being taken in the current state
 
         Returns:
-            tuple[T.Tensor, T.Tensor]: The next hidden state and the current reward
+            tuple[torch.Tensor, torch.Tensor]: The next hidden state and the current reward
         """
 
         # encoded_state: (batch size, encoded state size)
@@ -197,16 +220,17 @@ class FTCNetwork(MuZeroNetwork):
 
     @override
     def initial_inference(
-        self: Self, observation: T.Tensor
+        self: Self,
+        observation: Batch,
     ) -> tuple[T.Tensor, T.Tensor, T.Tensor, T.Tensor, T.Tensor]:
         """
         Runs the intial inference based on the starting observation
 
         Args:
-            observation (T.Tensor): The initial observation
+            observation (Batch): The initial observation
 
         Returns:
-            tuple[T.Tensor, T.Tensor, T.Tensor, T.Tensor]: The value, reward, policy, and state
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: The value, reward, policy, and state
         """
 
         # observation: (batch size, *observation shape)
@@ -216,9 +240,9 @@ class FTCNetwork(MuZeroNetwork):
 
         # reward equal to 0 for consistency, log it to turn it into logits which will be softmaxed later
         reward = T.zeros(
-            (observation.shape[0], self.full_support_size),
+            (encoded_state.shape[0], self.full_support_size),
             dtype=T.float32,
-            device=observation.device,
+            device=encoded_state.device,
         )
         reward[:, self.full_support_size // 2] = 1
         reward = T.log(reward)
@@ -244,11 +268,11 @@ class FTCNetwork(MuZeroNetwork):
         Runs the recurrent inference based on the previous hidden state and an action
 
         Args:
-            encoded_state (T.Tensor): The current hidden state
-            action (T.Tensor): The action taken at that state
+            encoded_state (torch.Tensor): The current hidden state
+            action (torch.Tensor): The action taken at that state
 
         Returns:
-            tuple[T.Tensor, T.Tensor, T.Tensor, T.Tensor]: The value, reward, policy, and state
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: The value, reward, policy, and state
         """
 
         # encoded_state: (batch size, encoded state size)

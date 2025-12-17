@@ -15,10 +15,11 @@ from mu_zero_smt.models import (
     scalar_to_support,
     support_to_scalar,
 )
-from mu_zero_smt.models.ftc_network import FTCNetwork
+from mu_zero_smt.models.graph_network import MuZeroNetwork
 from mu_zero_smt.replay_buffer import ReplayBuffer
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.utils.config import MuZeroConfig
+from mu_zero_smt.utils.utils import collate_observations
 
 
 class Trainer:
@@ -37,7 +38,7 @@ class Trainer:
         T.manual_seed(self.config.seed)
 
         # Initialize the network
-        self.model = FTCNetwork.from_config(self.config)
+        self.model = MuZeroNetwork.from_config(self.config)
         self.model.load_state_dict(copy.deepcopy(initial_checkpoint["weights"]))
         self.model.to(T.device("cpu"))
         self.model.train()
@@ -80,6 +81,7 @@ class Trainer:
                 value_loss,
                 reward_loss,
                 policy_loss,
+                param_loss,
             ) = self.update_weights(batch)
 
             # Save new priorities in the replay buffer (See https://arxiv.org/abs/1803.00933)
@@ -125,6 +127,7 @@ class Trainer:
                     "value_loss": value_loss,
                     "reward_loss": reward_loss,
                     "policy_loss": policy_loss,
+                    "param_loss": param_loss,
                 }
             )
 
@@ -166,7 +169,7 @@ class Trainer:
         device = next(self.model.parameters()).device
 
         weight_batch = T.tensor(weight_batch.copy()).float().to(device)
-        observation_batch = T.tensor(np.array(observation_batch)).float().to(device)
+        observation_batch = collate_observations(observation_batch)
         action_batch = T.tensor(action_batch).long().to(device).unsqueeze(-1)
         param_batch = T.tensor(np.array(param_batch), dtype=T.float32, device=device)
         target_value = T.tensor(target_value).float().to(device)
@@ -186,52 +189,52 @@ class Trainer:
         # target_reward: batch, num_unroll_steps+1, 2*support_size+1
 
         ## Generate predictions
-        value, reward, policy_logits, hidden_state = self.model.initial_inference(
-            observation_batch
+        value, reward, policy_logits, continuous_logits, hidden_state = (
+            self.model.initial_inference(observation_batch)
         )
 
-        policy = policy_logits[:, : self.config.discrete_action_space]
-        continuous_params = policy_logits[:, self.config.discrete_action_space :]
-
-        predictions = [(value, reward, policy, continuous_params)]
+        predictions = [(value, reward, policy_logits, continuous_logits)]
         for i in range(1, action_batch.shape[1]):
-            value, reward, policy_logits, hidden_state = self.model.recurrent_inference(
-                hidden_state,
-                T.concat(
-                    (
-                        one_hot_encode(
-                            action_batch[:, i], self.config.discrete_action_space
+            value, reward, policy_logits, continuous_logits, hidden_state = (
+                self.model.recurrent_inference(
+                    hidden_state,
+                    T.concat(
+                        (
+                            one_hot_encode(
+                                action_batch[:, i], self.config.discrete_action_space
+                            ),
+                            param_batch[:, i],
                         ),
-                        param_batch[:, i],
+                        dim=1,
                     ),
-                    dim=1,
-                ),
+                )
             )
-
-            policy = policy_logits[:, : self.config.discrete_action_space]
-            continuous_params = policy_logits[:, self.config.discrete_action_space :]
 
             # Scale the gradient at the start of the dynamics function (See paper appendix Training)
             hidden_state.register_hook(lambda grad: grad * 0.5)
-            predictions.append((value, reward, policy, continuous_params))
+            predictions.append((value, reward, policy_logits, continuous_logits))
         # predictions: num_unroll_steps+1, 3, batch, 2*support_size+1 | 2*support_size+1 | 9 (according to the 2nd dim)
 
         ## Compute losses
-        value_loss, reward_loss, policy_loss = (0, 0, 0)
+        value_loss, reward_loss, policy_loss, param_loss = (0, 0, 0, 0)
         value, reward, policy_logits, params = predictions[0]
         # Ignore reward loss for the first batch step
-        current_value_loss, _, current_policy_loss = self.loss_function(
-            value.squeeze(-1),
-            reward.squeeze(-1),
-            policy_logits,
-            params,
-            target_value[:, 0],
-            target_reward[:, 0],
-            target_policy[:, 0],
-            param_batch[:, 0],
+        current_value_loss, _, current_policy_loss, current_param_loss = (
+            self.loss_function(
+                value.squeeze(-1),
+                reward.squeeze(-1),
+                policy_logits,
+                params,
+                target_value[:, 0],
+                target_reward[:, 0],
+                target_policy[:, 0],
+                param_batch[:, 0],
+            )
         )
         value_loss += current_value_loss
         policy_loss += current_policy_loss
+        param_loss += current_param_loss
+
         # Compute priorities for the prioritized replay (See paper appendix Training)
         pred_value_scalar = (
             support_to_scalar(value, self.config.support_size)
@@ -251,6 +254,7 @@ class Trainer:
                 current_value_loss,
                 current_reward_loss,
                 current_policy_loss,
+                current_param_loss,
             ) = self.loss_function(
                 value.squeeze(-1),
                 reward.squeeze(-1),
@@ -272,10 +276,14 @@ class Trainer:
             current_policy_loss.register_hook(
                 lambda grad: grad / gradient_scale_batch[:, i]
             )
+            current_param_loss.register_hook(
+                lambda grad: grad / gradient_scale_batch[:, i]
+            )
 
             value_loss += current_value_loss
             reward_loss += current_reward_loss
             policy_loss += current_policy_loss
+            param_loss += current_param_loss
 
             # Compute priorities for the prioritized replay (See paper appendix Training)
             pred_value_scalar = (
@@ -291,7 +299,12 @@ class Trainer:
             )
 
         # Scale the value loss, paper recommends by 0.25 (See paper appendix Reanalyze)
-        loss = value_loss * self.config.value_loss_weight + reward_loss + policy_loss
+        loss = (
+            value_loss * self.config.value_loss_weight
+            + reward_loss
+            + policy_loss
+            + param_loss
+        )
 
         # Correct PER bias by using importance-sampling (IS) weights
         loss *= weight_batch
@@ -311,6 +324,7 @@ class Trainer:
             value_loss.mean().item(),
             reward_loss.mean().item(),
             policy_loss.mean().item(),
+            param_loss.mean().item(),
         )
 
     def update_lr(self):
@@ -333,14 +347,19 @@ class Trainer:
         target_reward: T.Tensor,
         target_policy: T.Tensor,
         target_params: T.Tensor,
-    ) -> tuple[T.Tensor, T.Tensor, T.Tensor]:
+    ) -> tuple[T.Tensor, T.Tensor, T.Tensor, T.Tensor]:
         # Cross-entropy seems to have a better convergence than MSE
         value_loss = (-target_value * F.log_softmax(value, dim=1)).sum(1)
         reward_loss = (-target_reward * F.log_softmax(reward, dim=1)).sum(1)
+
         policy_loss = (-target_policy * F.log_softmax(policy_logits, dim=1)).sum(1)
+        policy_mask = (target_policy == 0).all(dim=1)
+        policy_loss[policy_mask] = 0
 
-        # If we have continuous parameters add it to the policy loss
-        if params.numel() != 0:
-            policy_loss += F.gaussian_nll_loss(params, target_params, 1.0)
+        param_loss = F.gaussian_nll_loss(
+            params, target_params, 1.0, reduction="none"
+        ).sum(1)
+        param_mask = (target_params == 0).all(dim=1)
+        param_loss[param_mask] = 0
 
-        return value_loss, reward_loss, policy_loss
+        return value_loss, reward_loss, policy_loss, param_loss

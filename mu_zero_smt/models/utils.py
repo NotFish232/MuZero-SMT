@@ -94,23 +94,22 @@ def scalar_to_support(x: T.Tensor, support_size: int, eps: float = 1e-3) -> T.Te
 
 
 def sample_continuous_params(
-    policy_logits: T.Tensor, continuous_action_space: int, num_continuous_samples: int
+    continuous_logits: T.Tensor, num_continuous_samples: int
 ) -> T.Tensor:
     """
     Samples continuous params from the policy logits, where the last 2 * continuous action space values are mean and standard deviations
 
     Args:
-        policy_logits (T.Tensor): The tensor of policy logits of shape (1, action space)
-        continuous_action_space (int): The size of the continuous action space
+        continuous_logits (T.Tensor): The tensor of policy logits of shape (1, continuous action space)
         num_continuous_samples (int): How many samples to make
 
     Returns:
         T.Tensor: The values in [0, 1] for each continuous parameter
     """
 
-    means = policy_logits[0, -continuous_action_space:]
-
-    return means + T.randn(num_continuous_samples, continuous_action_space)
+    return continuous_logits + T.randn(
+        num_continuous_samples, continuous_logits.shape[1]
+    )
 
 
 def one_hot_encode(x: T.Tensor, n: int) -> T.Tensor:

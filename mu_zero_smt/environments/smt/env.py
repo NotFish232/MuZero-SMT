@@ -4,12 +4,13 @@ from time import perf_counter
 
 import numpy as np
 import z3  # type: ignore
-from typing_extensions import Any, Self, override, Literal
+from typing_extensions import Any, Self, override
 
-from mu_zero_smt.utils.utils import Mode
+from mu_zero_smt.utils.utils import RawObservation, RunMode
 
-from ..abstract_environment import AbstractEnvironment
+from ..base_environment import BaseEnvironment
 from .dataset import SMTDataset
+from .embeddings import SMTEmbeddings
 
 
 def map_raw_val(raw_val: float, typ: str) -> Any:
@@ -57,31 +58,34 @@ def prep_tactic_params(
     return tactic_to_parameters
 
 
-class SMTEnvironment(AbstractEnvironment):
+class SMTEnvironment(BaseEnvironment):
     """
     Game wrapper.
     """
 
     def __init__(
         self: Self,
-        mode: Mode = "train",
+        mode: RunMode = "train",
         seed: int | None = None,
         *,
         benchmark: str,
+        embedding_type: str,
+        embedding_args: dict[str, Any],
         tactics: list[str],
-        probes: list[str],
         tactic_parameters: dict[str, dict[str, str]],
         solving_timeout: float,
         max_num_tactics: int,
-        split: dict[Mode, float],
+        split: dict[RunMode, float],
     ) -> None:
         self.mode = mode
         random.seed(seed)
 
         self.benchmark = benchmark
         self.tactics = tactics
-        self.probes = probes
         self.tactic_parameters = tactic_parameters
+
+        # Embeds the formula
+        self.embedder = SMTEmbeddings.new(embedding_type, embedding_args)
 
         # tactic_parameters maps tactic => map of parameters => type
         # we also need index information to retrieve the value from the continuous parameters passed into step
@@ -102,22 +106,15 @@ class SMTEnvironment(AbstractEnvironment):
 
         self.current_goal: z3.Goal
 
-    def _get_observation(self: Self) -> np.ndarray:
-        values = np.zeros(len(self.probes) + 1, dtype=np.float64)
-
-        for i, probe in enumerate(self.probes):
-            probe_res = z3.Probe(probe)(self.current_goal)
-
-            values[i] = probe_res
-
-        values[len(self.probes)] = self.time_spent
-
-        return values.reshape(1, 1, -1)
+    def _get_observation(self: Self) -> RawObservation:
+        return self.embedder.embed(
+            self.current_goal, self.time_spent / self.solving_timeout
+        )
 
     @override
     def step(
         self: Self, action: int, raw_params: np.ndarray
-    ) -> tuple[np.ndarray, float, bool]:
+    ) -> tuple[RawObservation, float, bool]:
         """
         Apply action to the game.
 
@@ -199,7 +196,7 @@ class SMTEnvironment(AbstractEnvironment):
         return self._get_observation(), reward, done
 
     @override
-    def reset(self: Self, episode_id: int | None = None) -> np.ndarray:
+    def reset(self: Self, episode_id: int | None = None) -> RawObservation:
         """
         Reset the game for a new game.
 
