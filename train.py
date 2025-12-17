@@ -20,7 +20,7 @@ from mu_zero_smt.environments.base_environment import BaseEnvironment
 from mu_zero_smt.environments.smt import SMTEnvironment
 from mu_zero_smt.models import dict_to_cpu
 from mu_zero_smt.models.graph_network import MuZeroNetwork
-from mu_zero_smt.replay_buffer import Reanalyse, ReplayBuffer
+from mu_zero_smt.replay_buffer import ReplayBuffer
 from mu_zero_smt.self_play import GameHistory, SelfPlay
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.trainer import Trainer
@@ -127,12 +127,6 @@ class MuZero:
             .remote(self.checkpoint, self.replay_buffer, self.config)
         )
 
-        self.reanalyse_worker = (
-            ray.remote(Reanalyse)
-            .options(name="reanalyse_worker", num_cpus=1)
-            .remote(self.checkpoint, self.config)
-        )
-
         self.training_worker = (
             ray.remote(Trainer)
             .options(name="trainer_worker", num_cpus=1)
@@ -168,9 +162,6 @@ class MuZero:
         ]
 
         # Launch workers
-        # self.reanalyse_worker.reanalyse.remote(
-        #     self.replay_buffer_worker, self.shared_storage_worker
-        # )
 
         self.training_worker.continuous_update_weights.remote(
             self.replay_buffer_worker, self.shared_storage_worker

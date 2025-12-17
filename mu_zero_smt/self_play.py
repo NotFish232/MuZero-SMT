@@ -164,7 +164,6 @@ class SelfPlay:
         game_history = GameHistory()
 
         game_history.action_history.append(0)
-        game_history.param_history.append(np.zeros(self.config.continuous_action_space))
         game_history.observation_history.append(observation)
         game_history.reward_history.append(0)
 

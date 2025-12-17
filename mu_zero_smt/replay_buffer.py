@@ -1,17 +1,12 @@
 import copy
-import time
 
 import numpy as np
 import ray
-import torch as T
 from ray.actor import ActorProxy
 from typing_extensions import TYPE_CHECKING, Any, Self
 
-from mu_zero_smt.models import support_to_scalar
-from mu_zero_smt.models.graph_network import MuZeroNetwork
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.utils.config import MuZeroConfig
-from mu_zero_smt.utils.utils import collate_observations
 
 if TYPE_CHECKING:
     from mu_zero_smt.self_play import GameHistory
@@ -145,8 +140,7 @@ class ReplayBuffer:
             gradient_scale_batch,
         ) = ([], [], [], [], [], [], [], [], [])
 
-        # Manually annotate because of ray
-        games: list[tuple[int, ReplayBufferEntry, float]] = self.sample_n_games(self.config.batch_size, False)  # type: ignore
+        games = self.sample_n_games(self.config.batch_size, uniform=False)
 
         for buffer_id, entry, game_prob in games:
             game_pos, pos_prob = self.sample_position(entry)
@@ -202,7 +196,6 @@ class ReplayBuffer:
             ),
         )
 
-    @ray.method
     def sample_n_games(
         self: Self, n_games: int, uniform: bool
     ) -> list[tuple[int, ReplayBufferEntry, float]]:
@@ -354,15 +347,13 @@ class ReplayBuffer:
             elif current_index == len(entry.game_history.root_values):
                 target_values.append(0)
                 target_rewards.append(entry.game_history.reward_history[current_index])
-                # Uniform policy
                 target_policies.append([0] * len(entry.game_history.child_visits[0]))
                 actions.append(entry.game_history.action_history[current_index])
-                params.append(entry.game_history.param_history[current_index])
+                params.append(np.zeros(self.config.continuous_action_space))
             else:
                 # States past the end of games are treated as absorbing states
                 target_values.append(0)
                 target_rewards.append(0)
-                # Uniform policy
                 target_policies.append([0] * len(entry.game_history.child_visits[0]))
                 actions.append(
                     np.random.choice(range(self.config.discrete_action_space))
@@ -370,73 +361,3 @@ class ReplayBuffer:
                 params.append(np.zeros(self.config.continuous_action_space))
 
         return target_values, target_rewards, target_policies, actions, params
-
-
-class Reanalyse:
-    """
-    Class which run in a dedicated thread to update the replay buffer with fresh information.
-    See paper appendix Reanalyse.
-    """
-
-    def __init__(self, initial_checkpoint, config: MuZeroConfig) -> None:
-        self.config = config
-
-        # Fix random generator seed
-        np.random.seed(self.config.seed)
-        T.manual_seed(self.config.seed)
-
-        # Initialize the network
-        self.model = MuZeroNetwork.from_config(config)
-        self.model.load_state_dict(initial_checkpoint["weights"])
-        self.model.to(T.device("cpu"))
-        self.model.eval()
-
-        self.num_reanalysed_games = initial_checkpoint["num_reanalysed_games"]
-
-    @ray.method
-    def reanalyse(
-        self,
-        replay_buffer: ActorProxy[ReplayBuffer],
-        shared_storage: ActorProxy[SharedStorage],
-    ) -> None:
-        while ray.get(shared_storage.get_info.remote("num_played_games")) < 1:
-            time.sleep(0.1)
-
-        while ray.get(
-            shared_storage.get_info.remote("training_step")
-        ) < self.config.training_steps and not ray.get(
-            shared_storage.get_info.remote("terminate")
-        ):
-            self.model.load_state_dict(
-                ray.get(shared_storage.get_info.remote("weights"))
-            )
-
-            buffer_id, entry, _ = ray.get(replay_buffer.sample_n_games.remote(1, True))[
-                0
-            ]
-
-            # Use the last model to provide a fresher, stable n-step value (See paper appendix Reanalyze)
-            observations = collate_observations(
-                [
-                    entry.game_history.get_stacked_observations(
-                        i,
-                        self.config.stacked_observations,
-                        self.config.discrete_action_space,
-                    )
-                    for i in range(len(entry.game_history.root_values))
-                ]
-            )
-
-            values = support_to_scalar(
-                self.model.initial_inference(observations)[0],
-                self.config.support_size,
-            )
-            entry.reanalysed_predicted_root_values = (
-                T.squeeze(values).detach().cpu().numpy()
-            )
-
-            replay_buffer.update_buffer_entry.remote(buffer_id, entry)
-            self.num_reanalysed_games += 1
-            shared_storage.set_info.remote(
-                "num_reanalysed_games", self.num_reanalysed_games
-            )

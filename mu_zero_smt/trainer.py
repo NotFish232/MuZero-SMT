@@ -203,7 +203,7 @@ class Trainer:
                             one_hot_encode(
                                 action_batch[:, i], self.config.discrete_action_space
                             ),
-                            param_batch[:, i],
+                            param_batch[:, i - 1],
                         ),
                         dim=1,
                     ),
@@ -231,6 +231,7 @@ class Trainer:
                 param_batch[:, 0],
             )
         )
+
         value_loss += current_value_loss
         policy_loss += current_policy_loss
         param_loss += current_param_loss
