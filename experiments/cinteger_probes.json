@@ -104,9 +104,9 @@
         "solving_timeout": 60,
         "max_num_tactics": 10,
         "split": {
-            "train": 0.05,
-            "eval": 0.2,
-            "test": 0.75
+            "train": 0.1,
+            "eval": 0.1,
+            "test": 0.8
         }
     },
     "observation_size": 17,
