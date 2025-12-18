@@ -156,7 +156,7 @@ class GraphSMTEmbeddings(SMTEmbeddings):
             edges_tensor = T.tensor(list(edges), dtype=T.int64)
             edges_tensor = edges_tensor.T.contiguous()
         else:
-            edges_tensor = T.empty(2, 0)
+            edges_tensor = T.empty(2, 0, dtype=T.int64)
 
         graph = Data(x=node_embeddings_tensor, edge_index=edges_tensor)
 
