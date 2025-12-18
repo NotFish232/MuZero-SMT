@@ -20,7 +20,8 @@
         ],
         "embedding_type": "graph",
         "embedding_args": {
-            "embedding_size": 384
+            "embedding_size": 384,
+            "max_num_nodes": 1024
         },
         "tactic_parameters": {
             "global": {
@@ -48,7 +49,7 @@
     "discrete_action_space": 13,
     "continuous_action_space": 8,
     "num_self_play_workers": 1,
-    "num_eval_workers": 2,
+    "num_eval_workers": 4,
     "num_test_workers": 6,
     "num_simulations": 500,
     "num_continuous_samples": 2,
@@ -60,7 +61,7 @@
     "support_size": 2,
     "network_type": "graph",
     "network_args": {
-        "encoded_state_size": 12,
+        "encoded_state_size": 16,
         "fc_dynamics_layers": [
             16,
             16
@@ -78,16 +79,16 @@
     },
     "stacked_observations": 0,
     "training_steps": 100000,
-    "batch_size": 32,
-    "checkpoint_interval": 100,
+    "batch_size": 8,
+    "checkpoint_interval": 500,
     "value_loss_weight": 1,
     "weight_decay": 0.0001,
     "lr_init": 0.0005,
     "lr_decay_rate": 0.99,
     "lr_decay_steps": 1000,
-    "replay_buffer_size": 100,
+    "replay_buffer_size": 25,
     "num_unroll_steps": 3,
-    "td_steps": 7,
+    "td_steps": 3,
     "priority_alpha": 0.5,
     "training_delay": 2,
     "ratio": null,

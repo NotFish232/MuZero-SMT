@@ -73,7 +73,7 @@ class GraphNetwork(MuZeroNetwork):
         # + the current observation
         # + a `stacked_observations` number of frames where all elements are the action taken
         self.representation_network = GraphEncoder(
-            observation_size, observation_size // 2, self.encoded_state_size
+            observation_size, self.encoded_state_size, self.encoded_state_size
         )
 
         # Dynamics state transition network

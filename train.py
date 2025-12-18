@@ -81,7 +81,6 @@ class MuZero:
             # Statistics
             "num_played_games": 0,
             "num_played_steps": 0,
-            "num_reanalysed_games": 0,
             "lr": 0,
             # Loss
             "total_loss": 0,
@@ -201,7 +200,6 @@ class MuZero:
             # Stats
             "num_played_games",
             "num_played_steps",
-            "num_reanalysed_games",
             "lr",
             # Loss Metrics
             "total_loss",
@@ -266,16 +264,11 @@ class MuZero:
                     "2.Workers/4.Self_played_steps", info["num_played_steps"], counter
                 )
                 writer.add_scalar(
-                    "2.Workers/5.Reanalysed_games",
-                    info["num_reanalysed_games"],
-                    counter,
-                )
-                writer.add_scalar(
-                    "2.Workers/6.Training_steps_per_self_played_step_ratio",
+                    "2.Workers/5.Training_steps_per_self_played_step_ratio",
                     info["training_step"] / max(1, info["num_played_steps"]),
                     counter,
                 )
-                writer.add_scalar("2.Workers/7.Learning_rate", info["lr"], counter)
+                writer.add_scalar("2.Workers/6.Learning_rate", info["lr"], counter)
                 writer.add_scalar(
                     "3.Loss/1.Total_weighted_loss", info["total_loss"], counter
                 )
@@ -313,7 +306,6 @@ class MuZero:
         self.self_play_workers = None
         self.test_worker = None
         self.training_worker = None
-        self.reanalyse_worker = None
         self.replay_buffer_worker = None
         self.shared_storage_worker = None
 
@@ -344,9 +336,6 @@ class MuZero:
             self.checkpoint["num_played_games"] = replay_buffer_infos[
                 "num_played_games"
             ]
-            self.checkpoint["num_reanalysed_games"] = replay_buffer_infos[
-                "num_reanalysed_games"
-            ]
 
             print(f"\nInitializing replay buffer with {replay_buffer_path}")
         else:
@@ -355,7 +344,6 @@ class MuZero:
             self.checkpoint["training_step"] = 0
             self.checkpoint["num_played_steps"] = 0
             self.checkpoint["num_played_games"] = 0
-            self.checkpoint["num_reanalysed_games"] = 0
 
 
 def main() -> None:

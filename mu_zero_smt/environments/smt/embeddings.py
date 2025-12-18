@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from collections import deque
 
 import numpy as np
 import torch as T
@@ -60,8 +61,9 @@ Z3_OP_TO_ID = dict(zip(Z3_OP_TYPES, range(len(Z3_OP_TYPES))))
 
 
 class GraphSMTEmbeddings(SMTEmbeddings):
-    def __init__(self: Self, embedding_size: int) -> None:
+    def __init__(self: Self, embedding_size: int, max_num_nodes: int) -> None:
         self.embedding_size = embedding_size
+        self.max_num_nodes = max_num_nodes
 
         assert len(Z3_OP_TYPES) < self.embedding_size
 
@@ -79,42 +81,33 @@ class GraphSMTEmbeddings(SMTEmbeddings):
 
         num_variable_names = self.embedding_size - len(Z3_OP_TYPES)
 
-        def _traverse_tree(
-            expr_ref: z3.ExprRef,
-            parent: int,
-            nodes: list[tuple[str | None, int]],
-            edges: set[tuple[int, int]],
-            visited: set[int],
-            var_freq: dict[str, int],
-        ) -> None:
-            """
-            Traverses the syntax tree recursively
+        nodes: list[tuple[str | None, int]] = []
+        edges: set[tuple[int, int]] = set()
+        visited: set[int] = set()
 
-            Args:
-                expr_ref (z3.ExprRef): The current expression being parsed
-                parent (int): The index of the parent of this expression
-                nodes (list[tuple[str | None, int]]): Previous nodes, where each node is a string repr if its an identifier and the op id
-                edges (list[tuple[int, int]]): The edges between nodes
-                visited (set[int]): A set of visited expression
-                var_freq (dict[str, int]): The frequency of each variable, truncated variables are those with less freq
-            """
+        var_freq: dict[str, int] = {}
 
-            node_id = expr_ref.get_id()
+        queue: deque[tuple[z3.ExprRef, int]] = deque()
 
-            if node_id in visited:
-                return
+        for ref in goal:
+            queue.append((ref, -1))
 
-            visited.add(node_id)
+        while len(queue) > 0 and len(visited) < self.max_num_nodes:
+            ref, parent = queue.popleft()
+
+            if ref.get_id() in visited:
+                continue
+            visited.add(ref.get_id())
 
             expr_str = None
 
             # A function (or variable which is a function with arity 0)
-            if expr_ref.decl().kind() == z3.Z3_OP_UNINTERPRETED:
-                expr_str = expr_ref.decl().name()
+            if ref.decl().kind() == z3.Z3_OP_UNINTERPRETED:
+                expr_str = ref.decl().name()
 
                 var_freq[expr_str] = var_freq.get(expr_str, 0) + 1
 
-            op_id = Z3_OP_TO_ID[expr_ref.decl().kind()]
+            op_id = Z3_OP_TO_ID[ref.decl().kind()]
 
             # New expression
             node_idx = len(nodes)
@@ -122,24 +115,17 @@ class GraphSMTEmbeddings(SMTEmbeddings):
             nodes.append((expr_str, op_id))
 
             if parent != -1:
-                edges.add((parent, node_idx))
+                edges.add((node_idx, parent))
 
-            for child_ref in expr_ref.children():
-                _traverse_tree(child_ref, node_idx, nodes, edges, visited, var_freq)
-
-        nodes: list[tuple[str | None, int]] = []
-        edges: set[tuple[int, int]] = set()
-        visited: set[int] = set()
-
-        var_freq: dict[str, int] = {}
-
-        for ref in goal:
-            _traverse_tree(ref, -1, nodes, edges, visited, var_freq)
+            for child_ref in ref.children():
+                queue.append((child_ref, node_idx))
 
         var_to_id = {}
 
         # Sort based on frequency since we want to truncate the less used variables if we have to
-        for i, var_name in enumerate(sorted(var_freq.keys(), key=var_freq.__getitem__)):
+        for i, var_name in enumerate(
+            reversed(sorted(var_freq.keys(), key=var_freq.__getitem__))
+        ):
             if i < num_variable_names:
                 var_to_id[var_name] = i
             else:
@@ -163,12 +149,11 @@ class GraphSMTEmbeddings(SMTEmbeddings):
         if len(node_embeddings) > 0:
             node_embeddings_tensor = T.stack(node_embeddings)
         else:
-            node_embeddings_tensor = T.empty(0, 2**9)
+            node_embeddings_tensor = T.empty(0, self.embedding_size)
 
         # Add the other direction of edges and transpose + make it contiguous
         if len(edges) > 0:
-            edges_tensor = T.tensor(list(edges))
-            edges_tensor = T.concat((edges_tensor, edges_tensor.flip(-1)))
+            edges_tensor = T.tensor(list(edges), dtype=T.int64)
             edges_tensor = edges_tensor.T.contiguous()
         else:
             edges_tensor = T.empty(2, 0)
