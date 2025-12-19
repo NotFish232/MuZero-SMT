@@ -41,10 +41,9 @@ def support_to_scalar(
     x = T.sum(support * probs, dim=-1)
 
     # Invert the scaling (defined in https://arxivTrue.org/abs/1805.11593)
-    x = (
-        T.sign(x) * ((T.sqrt(1 + 4 * eps * (T.abs(x) + 1 + eps)) - 1) / (2 * eps)) ** 2
-        - 1
-    )
+    # x = T.sign(x) * (
+    #     ((T.sqrt(1 + 4 * eps * (T.abs(x) + 1 + eps)) - 1) / (2 * eps)) ** 2 - 1
+    # )
 
     return x
 
@@ -64,7 +63,7 @@ def scalar_to_support(x: T.Tensor, support_size: int, eps: float = 1e-3) -> T.Te
     """
 
     # Reduce the scale (defined in https://arxiv.org/abs/1805.11593)
-    x = T.sign(x) * (T.sqrt(T.abs(x) + 1) - 1) + eps * x
+    # x = T.sign(x) * (T.sqrt(T.abs(x) + 1) - 1) + eps * x
 
     # Clamp x to the range [-support_size, support_size] and convert it to an integer
     x = T.clamp(x, -support_size, support_size)
