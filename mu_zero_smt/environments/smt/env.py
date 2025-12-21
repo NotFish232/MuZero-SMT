@@ -27,7 +27,7 @@ def map_raw_val(raw_val: float, typ: str) -> Any:
 
 def prep_tactic_params(
     tactic_parameters: dict[str, dict[str, str]],
-) -> dict[str, list[tuple[str, str, int]]]:
+) -> tuple[dict[str, list[tuple[str, str, int]]], int]:
     """
     Parses tactic parameters by assigning each an index and adding global parameters to the parameter of each tactic in a defaultdict
     """
@@ -55,7 +55,7 @@ def prep_tactic_params(
 
         tactic_to_parameters[tactic_name] = full_parameters
 
-    return tactic_to_parameters
+    return tactic_to_parameters, idx
 
 
 class SMTEnvironment(BaseEnvironment):
@@ -90,7 +90,7 @@ class SMTEnvironment(BaseEnvironment):
         # tactic_parameters maps tactic => map of parameters => type
         # we also need index information to retrieve the value from the continuous parameters passed into step
         # maps from tactic => list of (param name, type, idx)
-        self.tactic_to_params = prep_tactic_params(tactic_parameters)
+        self.tactic_to_params, self.num_params = prep_tactic_params(tactic_parameters)
 
         self.solving_timeout = solving_timeout
         self.max_num_tactics = max_num_tactics
@@ -220,6 +220,16 @@ class SMTEnvironment(BaseEnvironment):
         self.tactics_applied = []
 
         return self._get_observation()
+
+    @override
+    def get_action_mask(self: Self, action: int) -> np.ndarray:
+        mask = np.zeros(self.num_params)
+
+        action_idxs = [idx for *_, idx in self.tactic_to_params[self.tactics[action]]]
+
+        mask[action_idxs] = 1
+
+        return mask
 
     @override
     def unique_episodes(self: Self) -> list[int]:

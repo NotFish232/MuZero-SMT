@@ -155,6 +155,7 @@ class Trainer:
             observation_batch,
             action_batch,
             param_batch,
+            param_mask_batch,
             target_value,
             target_reward,
             target_policy,
@@ -172,6 +173,9 @@ class Trainer:
         observation_batch = collate_observations(observation_batch)
         action_batch = T.tensor(action_batch).long().to(device).unsqueeze(-1)
         param_batch = T.tensor(np.array(param_batch), dtype=T.float32, device=device)
+        param_mask_batch = T.tensor(
+            np.array(param_mask_batch), dtype=T.bool, device=device
+        )
         target_value = T.tensor(target_value).float().to(device)
         target_reward = T.tensor(target_reward).float().to(device)
         target_policy = T.tensor(target_policy).float().to(device)
@@ -229,6 +233,7 @@ class Trainer:
                 target_reward[:, 0],
                 target_policy[:, 0],
                 param_batch[:, 0],
+                param_mask_batch[:, 0],
             )
         )
 
@@ -265,6 +270,7 @@ class Trainer:
                 target_reward[:, i],
                 target_policy[:, i],
                 param_batch[:, i],
+                param_mask_batch[:, i],
             )
 
             # Scale gradient by the number of unroll steps (See paper appendix Training)
@@ -348,6 +354,7 @@ class Trainer:
         target_reward: T.Tensor,
         target_policy: T.Tensor,
         target_params: T.Tensor,
+        param_mask: T.Tensor,
     ) -> tuple[T.Tensor, T.Tensor, T.Tensor, T.Tensor]:
         # Cross-entropy seems to have a better convergence than MSE
         value_loss = (-target_value * F.log_softmax(value, dim=1)).sum(1)
@@ -357,10 +364,10 @@ class Trainer:
         policy_mask = (target_policy == 0).all(dim=1)
         policy_loss[policy_mask] = 0
 
-        param_loss = F.gaussian_nll_loss(
-            params, target_params, 1.0, reduction="none"
-        ).sum(1)
-        param_mask = (target_params == 0).all(dim=1)
-        param_loss[param_mask] = 0
+        param_loss = F.gaussian_nll_loss(params, target_params, 1.0, reduction="none")
+
+        # Mask is for params not used in specified action
+        param_loss[~param_mask] = 0
+        param_loss = param_loss.sum(1)
 
         return value_loss, reward_loss, policy_loss, param_loss

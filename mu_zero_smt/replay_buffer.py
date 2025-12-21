@@ -121,6 +121,7 @@ class ReplayBuffer:
             list[np.ndarray],
             list[list[int]],
             list[list[np.ndarray]],
+            list[list[np.ndarray]],
             list[list[float]],
             list[list[float]],
             list[list[list[float]]],
@@ -133,19 +134,20 @@ class ReplayBuffer:
             observation_batch,
             action_batch,
             param_batch,
+            param_mask_batch,
             reward_batch,
             value_batch,
             policy_batch,
             l_weight_batch,
             gradient_scale_batch,
-        ) = ([], [], [], [], [], [], [], [], [])
+        ) = ([], [], [], [], [], [], [], [], [], [])
 
         games = self.sample_n_games(self.config.batch_size, uniform=False)
 
         for buffer_id, entry, game_prob in games:
             game_pos, pos_prob = self.sample_position(entry)
 
-            values, rewards, policies, actions, params = self.make_target(
+            values, rewards, policies, actions, params, param_mask = self.make_target(
                 entry, game_pos
             )
             index_batch.append([buffer_id, game_pos])
@@ -158,6 +160,7 @@ class ReplayBuffer:
             )
             action_batch.append(actions)
             param_batch.append(params)
+            param_mask_batch.append(param_mask)
             value_batch.append(values)
             reward_batch.append(rewards)
             policy_batch.append(policies)
@@ -188,6 +191,7 @@ class ReplayBuffer:
                 observation_batch,
                 action_batch,
                 param_batch,
+                param_mask_batch,
                 value_batch,
                 reward_batch,
                 policy_batch,
@@ -317,16 +321,20 @@ class ReplayBuffer:
 
         return value
 
-    def make_target(
-        self: Self, entry: ReplayBufferEntry, state_index: int
-    ) -> tuple[
-        list[float], list[float], list[list[float]], list[int], list[np.ndarray]
+    def make_target(self: Self, entry: ReplayBufferEntry, state_index: int) -> tuple[
+        list[float],
+        list[float],
+        list[list[float]],
+        list[int],
+        list[np.ndarray],
+        list[np.ndarray],
     ]:
         """
         Generate targets for every unroll steps.
         """
 
-        target_values, target_rewards, target_policies, actions, params = (
+        target_values, target_rewards, target_policies, actions, params, param_masks = (
+            [],
             [],
             [],
             [],
@@ -344,12 +352,14 @@ class ReplayBuffer:
                 target_policies.append(entry.game_history.child_visits[current_index])
                 actions.append(entry.game_history.action_history[current_index])
                 params.append(entry.game_history.param_history[current_index])
+                param_masks.append(entry.game_history.param_masks[current_index])
             elif current_index == len(entry.game_history.root_values):
                 target_values.append(0)
                 target_rewards.append(entry.game_history.reward_history[current_index])
                 target_policies.append([0] * len(entry.game_history.child_visits[0]))
                 actions.append(entry.game_history.action_history[current_index])
                 params.append(np.zeros(self.config.continuous_action_space))
+                param_masks.append(np.zeros(self.config.continuous_action_space))
             else:
                 # States past the end of games are treated as absorbing states
                 target_values.append(0)
@@ -359,5 +369,13 @@ class ReplayBuffer:
                     np.random.choice(range(self.config.discrete_action_space))
                 )
                 params.append(np.zeros(self.config.continuous_action_space))
+                param_masks.append(np.zeros(self.config.continuous_action_space))
 
-        return target_values, target_rewards, target_policies, actions, params
+        return (
+            target_values,
+            target_rewards,
+            target_policies,
+            actions,
+            params,
+            param_masks,
+        )

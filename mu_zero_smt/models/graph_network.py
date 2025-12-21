@@ -13,25 +13,43 @@ from .utils import mlp
 
 class GraphEncoder(nn.Module):
     def __init__(
-        self: Self, in_channels: int, hidden_channels: int, out_channels: int
+        self,
+        in_channels: int,
+        hidden_channels: int,
+        out_channels: int,
     ) -> None:
         super().__init__()
-        self.conv1 = TGnn.GCNConv(in_channels, hidden_channels)
-        self.conv2 = TGnn.GCNConv(hidden_channels, hidden_channels)
+
+        self.conv1 = TGnn.GINConv(
+            nn.Sequential(
+                nn.Linear(in_channels, hidden_channels),
+                nn.ReLU(),
+                nn.Linear(hidden_channels, hidden_channels),
+            ),
+            train_eps=True,
+        )
+
+        self.conv2 = TGnn.GINConv(
+            nn.Sequential(
+                nn.Linear(hidden_channels, hidden_channels),
+                nn.ReLU(),
+                nn.Linear(hidden_channels, hidden_channels),
+            ),
+            train_eps=True,
+        )
+
         self.lin = nn.Linear(hidden_channels, out_channels)
 
-    def forward(self, x: T.Tensor, edge_index: T.Tensor, batch: T.Tensor) -> T.Tensor:
-        # Node embeddings
+    def forward(self: Self, x, edge_index: T.Tensor, batch: T.Tensor) -> T.Tensor:
         x = self.conv1(x, edge_index)
         x = F.relu(x)
+
         x = self.conv2(x, edge_index)
         x = F.relu(x)
 
-        # Graph embedding (pool nodes → graph)
-        x = TGnn.pool.global_mean_pool(x, batch)
-
-        # Optional projection
+        x = TGnn.global_mean_pool(x, batch)
         x = self.lin(x)
+
         return x
 
 
@@ -73,7 +91,7 @@ class GraphNetwork(MuZeroNetwork):
         # + the current observation
         # + a `stacked_observations` number of frames where all elements are the action taken
         self.representation_network = GraphEncoder(
-            observation_size, self.encoded_state_size, self.encoded_state_size
+            observation_size, observation_size // 4, self.encoded_state_size
         )
 
         # Dynamics state transition network

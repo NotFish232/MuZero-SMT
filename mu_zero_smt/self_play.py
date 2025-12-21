@@ -197,6 +197,8 @@ class SelfPlay:
                 # Next batch
                 game_history.action_history.append(action)
                 game_history.param_history.append(params)
+                game_history.param_masks.append(self.env.get_action_mask(action))
+
                 game_history.observation_history.append(observation)
                 game_history.reward_history.append(reward)
 
@@ -276,7 +278,7 @@ class MCTS:
             tuple[MCTSNode, dict[str, Any]]: The root node of the MCTS algorithm along with some data
         """
 
-        device = next(iter(model.parameters())).device
+        device = next(model.parameters()).device
 
         # Initialize root of MCTS search with no priors
         root = MCTSNode(0)
@@ -562,30 +564,30 @@ class GameHistory:
 
     def __init__(self: Self) -> None:
         self.observation_history: list[RawObservation] = []
+
         self.action_history: list[int] = []
+
         self.param_history: list[np.ndarray] = []
+        self.param_masks: list[np.ndarray] = []
+
         self.reward_history: list[float] = []
         self.child_visits: list[list[float]] = []
         self.root_values: list[float] = []
 
-    def store_search_statistics(
-        self: Self, root: MCTSNode | None, action_space: int
-    ) -> None:
+    def store_search_statistics(self: Self, root: MCTSNode, action_space: int) -> None:
         # Turn visit count from root into a policy
-        if root is not None:
-            sum_visits = sum(
-                n.visit_count for lst in root.children.values() for n, _ in lst
-            )
-            self.child_visits.append(
-                [
-                    sum(n.visit_count for n, _ in root.children[a]) / sum_visits
-                    for a in range(action_space)
-                ]
-            )
 
-            self.root_values.append(root.value())
-        else:
-            self.root_values.append(-1)
+        sum_visits = sum(
+            n.visit_count for lst in root.children.values() for n, _ in lst
+        )
+        self.child_visits.append(
+            [
+                sum(n.visit_count for n, _ in root.children[a]) / sum_visits
+                for a in range(action_space)
+            ]
+        )
+
+        self.root_values.append(root.value())
 
     def get_stacked_observations(
         self: Self, index: int, num_stacked_observations: int, action_space_size: int
