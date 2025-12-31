@@ -45,12 +45,6 @@ class BaseEnvironment(ABC):
         """
 
     @abstractmethod
-    def get_action_mask(self: Self, action: int) -> np.ndarray:
-        """
-        A mask of which continuous parameters each action uses for loss calculations
-        """
-
-    @abstractmethod
     def unique_episodes(self: Self) -> list[int]:
         """
         A list of ids representing unique episodes

@@ -11,17 +11,18 @@ from torch_geometric.data import Data  # type: ignore
 from typing_extensions import Any, Self, Type
 
 from mu_zero_smt.environments.base_environment import BaseEnvironment
-from mu_zero_smt.models import (
-    one_hot_encode,
-    sample_continuous_params,
-    support_to_scalar,
-)
 from mu_zero_smt.models.graph_network import MuZeroNetwork
-from mu_zero_smt.models.utils import dict_to_cpu
 from mu_zero_smt.replay_buffer import ReplayBuffer
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.utils.config import MuZeroConfig
-from mu_zero_smt.utils.utils import RawObservation, RunMode, collate_observations
+from mu_zero_smt.utils.utils import (
+    RawObservation,
+    RunMode,
+    collate_observations,
+    dict_to_cpu,
+    sample_continuous_params,
+    support_to_scalar,
+)
 
 
 class SelfPlay:
@@ -163,7 +164,6 @@ class SelfPlay:
         # Initial game history with a dummy entry for the root node
         game_history = GameHistory()
 
-        game_history.action_history.append(0)
         game_history.observation_history.append(observation)
         game_history.reward_history.append(0)
 
@@ -175,7 +175,7 @@ class SelfPlay:
                 stacked_observations = game_history.get_stacked_observations(
                     -1,
                     self.config.stacked_observations,
-                    self.config.discrete_action_space,
+                    len(self.config.action_space),
                 )
 
                 # Choose the next action based on MCTS' visit distributions and a temperature parameter
@@ -184,21 +184,23 @@ class SelfPlay:
                     stacked_observations,
                     True,
                 )
-                action, params = SelfPlay.select_action(root, temperature)
+                action, raw_params = SelfPlay.select_action(root, temperature)
 
-                observation, reward, done = self.env.step(
-                    action, 1 / (1 + np.exp(-params))
-                )
+                param_start_idx = sum(self.config.action_space[:action])
+                param_end_idx = param_start_idx + self.config.action_space[action]
+
+                params = 1 / (1 + np.exp(-raw_params[param_start_idx:param_end_idx]))
+
+                observation, reward, done = self.env.step(action, params)
 
                 game_history.store_search_statistics(
-                    root, self.config.discrete_action_space
+                    root, len(self.config.action_space)
                 )
 
-                # Next batch
                 game_history.action_history.append(action)
-                game_history.param_history.append(params)
-                game_history.param_masks.append(self.env.get_action_mask(action))
+                game_history.param_history.append(raw_params)
 
+                # Next batch
                 game_history.observation_history.append(observation)
                 game_history.reward_history.append(reward)
 
@@ -295,7 +297,7 @@ class MCTS:
         ) = model.initial_inference(collate_observations([raw_observation]))
 
         continuous_params = sample_continuous_params(
-            continuous_logits,
+            continuous_logits[0],
             self.config.num_continuous_samples,
         )
 
@@ -340,20 +342,12 @@ class MCTS:
                 hidden_state,
             ) = model.recurrent_inference(
                 parent.hidden_state,
-                T.concat(
-                    (
-                        one_hot_encode(
-                            T.tensor([[action]], device=device),
-                            self.config.discrete_action_space,
-                        ),
-                        continuous_params.unsqueeze(0),
-                    ),
-                    dim=1,
-                ),
+                T.tensor([[action]], device=device),
+                continuous_params.unsqueeze(0),
             )
 
             continuous_params = sample_continuous_params(
-                continuous_logits,
+                continuous_logits[0],
                 self.config.num_continuous_samples,
             )
 
@@ -507,7 +501,7 @@ class MCTSNode:
         hidden_state: T.Tensor,
         reward: float,
         policy_logits: T.Tensor,
-        continous_params: T.Tensor,
+        continuous_params: T.Tensor,
     ) -> None:
         """
         We expand a node using the value, reward and policy prediction obtained from the
@@ -527,12 +521,12 @@ class MCTSNode:
 
         # Initialize children with the probability predicted by the policy
         for action, policy_prob in zip(range(policy_logits.shape[1]), policy_values):
-            if continous_params.numel() == 0:
+            if continuous_params.numel() == 0:
                 self.children[action] = [(MCTSNode(policy_prob), T.empty(0))]
             else:
                 self.children[action] = [
-                    (MCTSNode(policy_prob / continous_params.shape[0]), c)
-                    for c in continous_params
+                    (MCTSNode(policy_prob / continuous_params.shape[0]), c)
+                    for c in continuous_params
                 ]
 
     def add_exploration_noise(
@@ -568,7 +562,6 @@ class GameHistory:
         self.action_history: list[int] = []
 
         self.param_history: list[np.ndarray] = []
-        self.param_masks: list[np.ndarray] = []
 
         self.reward_history: list[float] = []
         self.child_visits: list[list[float]] = []

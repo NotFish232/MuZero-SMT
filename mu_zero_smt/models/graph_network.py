@@ -6,9 +6,9 @@ from torch_geometric.data import Batch  # type: ignore
 from typing_extensions import Self, override
 
 from mu_zero_smt.utils.config import MuZeroConfig
+from mu_zero_smt.utils.utils import mlp
 
 from .mu_zero_network import MuZeroNetwork
-from .utils import mlp
 
 
 class GraphEncoder(nn.Module):
@@ -58,17 +58,15 @@ class GraphNetwork(MuZeroNetwork):
     def from_config(config: MuZeroConfig) -> "GraphNetwork":
         return GraphNetwork(
             observation_size=config.observation_size,
-            discrete_action_size=config.discrete_action_space,
-            continuous_action_size=config.continuous_action_space,
+            action_space=config.action_space,
             support_size=config.support_size,
-            **config.network_args
+            **config.model_config
         )
 
     def __init__(
         self: Self,
         observation_size: int,
-        discrete_action_size: int,
-        continuous_action_size: int,
+        action_space: list[int],
         encoded_state_size: int,
         fc_reward_layers: list[int],
         fc_value_layers: list[int],
@@ -78,72 +76,62 @@ class GraphNetwork(MuZeroNetwork):
     ) -> None:
         super().__init__()
 
-        self.discrete_action_size = discrete_action_size
-        self.continuous_action_size = continuous_action_size
+        self.action_space = action_space
 
         self.encoded_state_size = encoded_state_size
 
         # Size of entire support with a support for values in range -[support_size, support_size]
         self.full_support_size = 2 * support_size + 1
 
-        # Representation network
-        # Input is a stack of `stacked_observations` number previous observations
-        # + the current observation
-        # + a `stacked_observations` number of frames where all elements are the action taken
-        self.representation_network = GraphEncoder(
+        # Representation model
+        self.representation_model = GraphEncoder(
             observation_size, observation_size // 4, self.encoded_state_size
         )
 
-        # Dynamics state transition network
-        # Input is the encoded space + an action
-        self.dynamics_state_network = mlp(
-            self.encoded_state_size
-            + self.discrete_action_size
-            + self.continuous_action_size,
+        # Dynamics Model
+        self.dynamics_model = mlp(
+            self.encoded_state_size,
             fc_dynamics_layers,
             self.encoded_state_size,
         )
-
-        # Dynamics reward network
-        # Input is the encoded space
-        # Output is a support of a scalar representing the reward
-        self.dynamics_reward_network = mlp(
-            self.encoded_state_size, fc_reward_layers, self.full_support_size
+        self.dynamics_heads = nn.ModuleList(
+            [
+                mlp(self.encoded_state_size + dim, [], self.encoded_state_size)
+                for dim in self.action_space
+            ]
         )
 
-        # Prediction policy network
-        # Input is the encoded space
-        # Output is logits over the action space
-        self.prediction_policy_network = mlp(
+        # Policy model
+        self.policy_model = mlp(
             self.encoded_state_size,
             fc_policy_layers,
             self.encoded_state_size,
         )
-        self.prediction_policy_discrete_network = mlp(
+        self.policy_discrete_head = mlp(
             self.encoded_state_size,
             fc_policy_layers,
-            self.discrete_action_size,
+            len(self.action_space),
         )
-        self.prediction_policy_continuous_network = mlp(
-            self.encoded_state_size,
-            fc_policy_layers,
-            self.continuous_action_size,
+        self.policy_continuous_heads = nn.ModuleList(
+            [mlp(self.encoded_state_size, [], 2 * dim) for dim in self.action_space]
         )
 
-        # Prediction value network
-        # Input is the encoded space
-        # Output is a support of a scalar representing the value
-        self.prediction_value_network = mlp(
+        # Value model
+        self.value_model = mlp(
             self.encoded_state_size, fc_value_layers, self.full_support_size
         )
 
-        self.prediction_policy_network.children
+        # Reward model
+        self.reward_model = mlp(
+            self.encoded_state_size, fc_reward_layers, self.full_support_size
+        )
 
     def prediction(
         self: Self, encoded_state: T.Tensor
     ) -> tuple[T.Tensor, T.Tensor, T.Tensor]:
         """
-        Predicts the policy logits and value of the encode_state through the prediction network
+        Predicts the discrete policy logits, a continuous parameter distribution,
+         and value of the encode_state through the prediction network
 
         Args:
             encoded_state (T.Tensor): The hidden state representation of the current state
@@ -152,19 +140,36 @@ class GraphNetwork(MuZeroNetwork):
             tuple[T.Tensor, T.Tensor, T.Tensor]: A tuple of the discrete logits, continuous logits, and the value tensor
         """
 
-        # encoded_state: (batch size, encoded state size)
+        # encoded_state: (batch_size, encoded_state_size)
 
-        policy_logits = self.prediction_policy_network(encoded_state)
+        policy_latent_state = self.policy_model(encoded_state)
 
-        policy_discrete_logits = self.prediction_policy_discrete_network(policy_logits)
-        policy_continuous_logits = self.prediction_policy_continuous_network(
-            policy_logits
+        # policy_latent_state: (batch_size, encoded_state_size)
+
+        policy_discrete_logits = self.policy_discrete_head(policy_latent_state)
+
+        policy_continuous_logits = T.concat(
+            [
+                h(policy_latent_state).reshape(-1, dim, 2)
+                for h, dim in zip(self.policy_continuous_heads, self.action_space)
+            ],
+            dim=1,
         )
 
-        value = self.prediction_value_network(encoded_state)
+        # Ensure variances are strictly positive
+        policy_continuous_means = policy_continuous_logits[:, :, 0]
+        policy_continuous_stds = F.softplus(policy_continuous_logits[:, :, 1])
 
-        # policy_logits: (batch size, action space size)
-        # value: (batch size, full supports size)
+        policy_continuous_logits = T.stack(
+            (policy_continuous_means, policy_continuous_stds), dim=-1
+        )
+
+        # policy_discrete_logits: (batch_size, len(action_space))
+        # policy_continuous_logits: (batch_size, sum(action_space), 2)
+
+        value = self.value_model(encoded_state)
+
+        # value: (batch_size, full_support_size)
 
         return policy_discrete_logits, policy_continuous_logits, value
 
@@ -182,7 +187,7 @@ class GraphNetwork(MuZeroNetwork):
         # observation: (batch size, *observation shape)
 
         # encoded_state: (batch size, encoded state size)
-        encoded_state = self.representation_network(
+        encoded_state = self.representation_model(
             observation.x, observation.edge_index, observation.batch
         )
 
@@ -200,28 +205,50 @@ class GraphNetwork(MuZeroNetwork):
         return encoded_state_normalized
 
     def dynamics(
-        self: Self, encoded_state: T.Tensor, action: T.Tensor
+        self: Self, encoded_state: T.Tensor, action: T.Tensor, parameters: T.Tensor
     ) -> tuple[T.Tensor, T.Tensor]:
         """
-        Using the dynamics network, predicts the next hidden state and reward associated with the ucrrent state
+        Using the dynamics network, predicts the next hidden state and reward associated with the next state
 
         Args:
-            encoded_state (torch.Tensor): The current hidden state
-            action (torch.Tensor): The action being taken in the current state
+            encoded_state (T.Tensor): The current hidden state
+            action (T.Tensor): The action being taken in the current state
+            parameters (T.Tensor): The parameters associated with the provided action
 
         Returns:
-            tuple[torch.Tensor, torch.Tensor]: The next hidden state and the current reward
+            tuple[T.Tensor, T.Tensor]: The next hidden state and the next reward
         """
 
         # encoded_state: (batch size, encoded state size)
-        # action: (batch size, action space size)
-
-        # Stack encoded_state with a game specific one hot encoded action (See paper appendix Network Architecture)
-        x = T.cat((encoded_state, action), dim=1)
+        # action: (batch size, 1)
 
         # Using the dynamics networks get both the next state and reward
-        next_encoded_state = self.dynamics_state_network(x)
-        reward = self.dynamics_reward_network(next_encoded_state)
+
+        dynamics_latent_state = self.dynamics_model(encoded_state)
+
+        next_encoded_state = T.zeros_like(encoded_state)
+
+        cur_param_idx = 0
+
+        # For each possible action, mask out state action pairs that use this action and apply the corresponding head
+        for cur_action, (head, dim) in enumerate(
+            zip(self.dynamics_heads, self.action_space)
+        ):
+            action_mask = (action == cur_action).squeeze(1)
+
+            if action_mask.any():
+                batch_states = dynamics_latent_state[action_mask]
+                batch_params = parameters[
+                    action_mask, cur_param_idx : cur_param_idx + dim
+                ]
+
+                batch = T.concat((batch_states, batch_params), dim=-1)
+
+                next_encoded_state[action_mask] = head(batch)
+
+            cur_param_idx += dim
+
+        reward = self.reward_model(next_encoded_state)
 
         # Scale encoded state between [0, 1] (See paper appendix Training)
 
@@ -245,10 +272,10 @@ class GraphNetwork(MuZeroNetwork):
         Runs the intial inference based on the starting observation
 
         Args:
-            observation (Batch): The initial observation
+            observation (T.Tensor): The initial observation
 
         Returns:
-            tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: The value, reward, policy, and state
+            tuple[T.Tensor, T.Tensor, T.Tensor, T.Tensor, T.Tensor]: The value, reward, discrete policy, continuous policy, and initial state
         """
 
         # observation: (batch size, *observation shape)
@@ -280,23 +307,27 @@ class GraphNetwork(MuZeroNetwork):
 
     @override
     def recurrent_inference(
-        self: Self, encoded_state: T.Tensor, action: T.Tensor
+        self: Self,
+        encoded_state: T.Tensor,
+        action: T.Tensor,
+        parameters: T.Tensor,
     ) -> tuple[T.Tensor, T.Tensor, T.Tensor, T.Tensor, T.Tensor]:
         """
         Runs the recurrent inference based on the previous hidden state and an action
 
         Args:
-            encoded_state (torch.Tensor): The current hidden state
-            action (torch.Tensor): The action taken at that state
+            encoded_state (T.Tensor): The current hidden state
+            action (T.Tensor): The action taken at that state
+            parameters (T.Tensor): The parameters associated with the action
 
         Returns:
-            tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: The value, reward, policy, and state
+            tuple[T.Tensor, T.Tensor, T.Tensor, T.Tensor, T.Tensor]: The value, reward, discrete policy, continuous policy, and new state
         """
 
         # encoded_state: (batch size, encoded state size)
         # action: (batch size, action size)
 
-        next_encoded_state, reward = self.dynamics(encoded_state, action)
+        next_encoded_state, reward = self.dynamics(encoded_state, action, parameters)
         discrete_logits, continuous_logits, value = self.prediction(next_encoded_state)
 
         # next_encoded_state: (batch size, encoded state size)

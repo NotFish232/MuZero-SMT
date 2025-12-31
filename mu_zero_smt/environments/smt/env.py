@@ -1,5 +1,4 @@
 import random
-from collections import defaultdict
 from time import perf_counter
 
 import numpy as np
@@ -25,39 +24,6 @@ def map_raw_val(raw_val: float, typ: str) -> Any:
     raise NotImplementedError(f'Unknown value type: "{typ}"')
 
 
-def prep_tactic_params(
-    tactic_parameters: dict[str, dict[str, str]],
-) -> tuple[dict[str, list[tuple[str, str, int]]], int]:
-    """
-    Parses tactic parameters by assigning each an index and adding global parameters to the parameter of each tactic in a defaultdict
-    """
-
-    global_parameters = [
-        (k, v, i) for i, (k, v) in enumerate(tactic_parameters["global"].items())
-    ]
-
-    tactic_to_parameters: dict[str, list[tuple[str, str, int]]] = defaultdict(
-        lambda: global_parameters
-    )
-
-    idx = len(global_parameters)
-
-    for tactic_name, params in tactic_parameters.items():
-        if tactic_name == "global":
-            continue
-
-        full_parameters = list(global_parameters)
-
-        for param, typ in params.items():
-            full_parameters.append((param, typ, idx))
-
-            idx += 1
-
-        tactic_to_parameters[tactic_name] = full_parameters
-
-    return tactic_to_parameters, idx
-
-
 class SMTEnvironment(BaseEnvironment):
     """
     Game wrapper.
@@ -71,8 +37,7 @@ class SMTEnvironment(BaseEnvironment):
         benchmark: str,
         embedding_type: str,
         embedding_args: dict[str, Any],
-        tactics: list[str],
-        tactic_parameters: dict[str, dict[str, str]],
+        tactics: dict[str, dict[str, str]],
         solving_timeout: float,
         max_num_tactics: int,
         split: dict[RunMode, float],
@@ -81,16 +46,12 @@ class SMTEnvironment(BaseEnvironment):
         random.seed(seed)
 
         self.benchmark = benchmark
-        self.tactics = tactics
-        self.tactic_parameters = tactic_parameters
+
+        self.tactics = [*tactics.keys()]
+        self.tactic_parameters = tactics
 
         # Embeds the formula
         self.embedder = SMTEmbeddings.new(embedding_type, embedding_args)
-
-        # tactic_parameters maps tactic => map of parameters => type
-        # we also need index information to retrieve the value from the continuous parameters passed into step
-        # maps from tactic => list of (param name, type, idx)
-        self.tactic_to_params, self.num_params = prep_tactic_params(tactic_parameters)
 
         self.solving_timeout = solving_timeout
         self.max_num_tactics = max_num_tactics
@@ -125,9 +86,11 @@ class SMTEnvironment(BaseEnvironment):
             The new observation, the reward and a boolean if the game has ended.
         """
 
+        tactic = self.tactics[action]
+
         param_to_val = {}
 
-        for p_name, typ, idx in self.tactic_to_params[self.tactics[action]]:
+        for idx, (p_name, typ) in enumerate(self.tactic_parameters[tactic].items()):
             # Timeout is special, its a fraction of the remaining time
             if p_name == "timeout":
                 param_to_val[p_name] = max(
@@ -220,16 +183,6 @@ class SMTEnvironment(BaseEnvironment):
         self.tactics_applied = []
 
         return self._get_observation()
-
-    @override
-    def get_action_mask(self: Self, action: int) -> np.ndarray:
-        mask = np.zeros(self.num_params)
-
-        action_idxs = [idx for *_, idx in self.tactic_to_params[self.tactics[action]]]
-
-        mask[action_idxs] = 1
-
-        return mask
 
     @override
     def unique_episodes(self: Self) -> list[int]:

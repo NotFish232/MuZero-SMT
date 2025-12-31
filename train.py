@@ -18,13 +18,13 @@ import ray
 
 from mu_zero_smt.environments.base_environment import BaseEnvironment
 from mu_zero_smt.environments.smt import SMTEnvironment
-from mu_zero_smt.models import dict_to_cpu
 from mu_zero_smt.models.graph_network import MuZeroNetwork
 from mu_zero_smt.replay_buffer import ReplayBuffer
 from mu_zero_smt.self_play import GameHistory, SelfPlay
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.trainer import Trainer
 from mu_zero_smt.utils.config import MuZeroConfig, load_config
+from mu_zero_smt.utils.utils import dict_to_cpu
 
 
 class MuZero:

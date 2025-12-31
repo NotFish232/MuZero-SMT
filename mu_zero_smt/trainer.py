@@ -9,17 +9,17 @@ from torch import optim
 from torch.nn import functional as F
 from typing_extensions import Any, Self
 
-from mu_zero_smt.models import (
-    dict_to_cpu,
-    one_hot_encode,
-    scalar_to_support,
-    support_to_scalar,
-)
 from mu_zero_smt.models.graph_network import MuZeroNetwork
 from mu_zero_smt.replay_buffer import ReplayBuffer
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.utils.config import MuZeroConfig
-from mu_zero_smt.utils.utils import collate_observations
+from mu_zero_smt.utils.utils import (
+    collate_observations,
+    dict_to_cpu,
+    get_param_mask,
+    scalar_to_support,
+    support_to_scalar,
+)
 
 
 class Trainer:
@@ -155,7 +155,6 @@ class Trainer:
             observation_batch,
             action_batch,
             param_batch,
-            param_mask_batch,
             target_value,
             target_reward,
             target_policy,
@@ -173,9 +172,6 @@ class Trainer:
         observation_batch = collate_observations(observation_batch)
         action_batch = T.tensor(action_batch).long().to(device).unsqueeze(-1)
         param_batch = T.tensor(np.array(param_batch), dtype=T.float32, device=device)
-        param_mask_batch = T.tensor(
-            np.array(param_mask_batch), dtype=T.bool, device=device
-        )
         target_value = T.tensor(target_value).float().to(device)
         target_reward = T.tensor(target_reward).float().to(device)
         target_policy = T.tensor(target_policy).float().to(device)
@@ -198,19 +194,12 @@ class Trainer:
         )
 
         predictions = [(value, reward, policy_logits, continuous_logits)]
-        for i in range(1, action_batch.shape[1]):
+        for i in range(action_batch.shape[1] - 1):
             value, reward, policy_logits, continuous_logits, hidden_state = (
                 self.model.recurrent_inference(
                     hidden_state,
-                    T.concat(
-                        (
-                            one_hot_encode(
-                                action_batch[:, i], self.config.discrete_action_space
-                            ),
-                            param_batch[:, i - 1],
-                        ),
-                        dim=1,
-                    ),
+                    action_batch[:, i],
+                    param_batch[:, i],
                 )
             )
 
@@ -233,7 +222,7 @@ class Trainer:
                 target_reward[:, 0],
                 target_policy[:, 0],
                 param_batch[:, 0],
-                param_mask_batch[:, 0],
+                action_batch[:, 0],
             )
         )
 
@@ -270,7 +259,7 @@ class Trainer:
                 target_reward[:, i],
                 target_policy[:, i],
                 param_batch[:, i],
-                param_mask_batch[:, i],
+                action_batch[:, i],
             )
 
             # Scale gradient by the number of unroll steps (See paper appendix Training)
@@ -344,8 +333,8 @@ class Trainer:
         for param_group in self.optimizer.param_groups:
             param_group["lr"] = lr
 
-    @staticmethod
     def loss_function(
+        self: Self,
         value: T.Tensor,
         reward: T.Tensor,
         policy_logits: T.Tensor,
@@ -354,7 +343,7 @@ class Trainer:
         target_reward: T.Tensor,
         target_policy: T.Tensor,
         target_params: T.Tensor,
-        param_mask: T.Tensor,
+        actions: T.Tensor,
     ) -> tuple[T.Tensor, T.Tensor, T.Tensor, T.Tensor]:
         # Cross-entropy seems to have a better convergence than MSE
         value_loss = (-target_value * F.log_softmax(value, dim=1)).sum(1)
@@ -364,7 +353,11 @@ class Trainer:
         policy_mask = (target_policy == 0).all(dim=1)
         policy_loss[policy_mask] = 0
 
-        param_loss = F.gaussian_nll_loss(params, target_params, 1.0, reduction="none")
+        param_loss = F.gaussian_nll_loss(
+            params[:, :, 0], target_params, params[:, :, 1] ** 2, reduction="none"
+        )
+
+        param_mask = get_param_mask(actions, self.config.action_space)
 
         # Mask is for params not used in specified action
         param_loss[~param_mask] = 0

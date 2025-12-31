@@ -2,9 +2,9 @@ import torch as T
 from typing_extensions import Self, override
 
 from mu_zero_smt.utils.config import MuZeroConfig
+from mu_zero_smt.utils.utils import mlp
 
 from .mu_zero_network import MuZeroNetwork
-from .utils import mlp
 
 
 class FTCNetwork(MuZeroNetwork):

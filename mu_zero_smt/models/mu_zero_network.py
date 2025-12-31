@@ -8,28 +8,28 @@ from typing_extensions import Self
 from mu_zero_smt.utils.config import MuZeroConfig
 from mu_zero_smt.utils.utils import CollatedObservation
 
-"""
-Base Class for a MuZero Network
-"""
-
 
 class MuZeroNetwork(ABC, nn.Module):
+    """
+    Base Class for a MuZero Network
+    """
+
     @staticmethod
     def from_config(config: MuZeroConfig) -> "MuZeroNetwork":
         """
         Constructs the network based on the config
         """
 
-        if config.network_type == "ftc":
+        if config.model_type == "ftc":
             from .ftc_network import FTCNetwork
 
             return FTCNetwork.from_config(config)
-        if config.network_type == "graph":
+        if config.model_type == "graph":
             from .graph_network import GraphNetwork
 
             return GraphNetwork.from_config(config)
 
-        raise ValueError(f'Invalid network type: "{config.network_type}"')
+        raise ValueError(f'Invalid network type: "{config.model_type}"')
 
     @abstractmethod
     def initial_inference(
@@ -39,27 +39,31 @@ class MuZeroNetwork(ABC, nn.Module):
         Runs the intial inference based on the starting observation
 
         Args:
-            observation (torch.Tensor): The initial observation
+            observation (T.Tensor): The initial observation
 
         Returns:
-            tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: The value, reward, policy, and state
+            tuple[T.Tensor, T.Tensor, T.Tensor, T.Tensor, T.Tensor]: The value, reward, discrete policy, continuous policy, and initial state
         """
 
         ...
 
     @abstractmethod
     def recurrent_inference(
-        self: Self, encoded_state: T.Tensor, action: T.Tensor
+        self: Self,
+        encoded_state: T.Tensor,
+        action: T.Tensor,
+        parameters: T.Tensor,
     ) -> tuple[T.Tensor, T.Tensor, T.Tensor, T.Tensor, T.Tensor]:
         """
         Runs the recurrent inference based on the previous hidden state and an action
 
         Args:
-            encoded_state (torch.Tensor): The current hidden state
-            action (torch.Tensor): The action taken at that state
+            encoded_state (T.Tensor): The current hidden state
+            action (T.Tensor): The action taken at that state
+            parameters (T.Tensor): The parameter associated with the actions
 
         Returns:
-            tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: The value, reward, policy, and state
+            tuple[T.Tensor, T.Tensor, T.Tensor, T.Tensor, T.Tensor]: The value, reward, discrete policy, continuous policy, and new state
         """
 
         ...

@@ -20,10 +20,10 @@ class MuZeroConfig:
 
     ### Game
     observation_size: int  # Dimensions of the game observation, must be 3D (channel, height, width). For a 1D array, please reshape it to (1, 1, length of array)
-    discrete_action_space: (
-        int  # Fixed list of all possible actions. You should only edit the length
-    )
-    continuous_action_space: int  # Additional actions to consider
+    action_space: list[
+        int
+    ]  # Fixed list of all possible actions. You should only edit the length
+
     stacked_observations: int
 
     ### Self-Play
@@ -44,8 +44,8 @@ class MuZeroConfig:
     pb_c_init: float
 
     ### Network
-    network_type: str
-    network_args: dict[str, Any]
+    model_type: str
+    model_config: dict[str, Any]
     support_size: int  # Value and reward are scaled (with almost sqrt) and encoded on a vector with a range of -support_size to support_size. Choose it so that support_size <= sqrt(max(abs(discounted reward)))
     # Fully Connected Network
     ### Training
