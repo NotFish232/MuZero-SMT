@@ -137,25 +137,34 @@ class Trainer:
 
         device = next(self.model.parameters()).device
 
-        weight_batch = T.tensor(weight_batch.copy()).float().to(device)
         observation_batch = collate_observations(observation_batch)
-        action_batch = T.tensor(action_batch).long().to(device).unsqueeze(-1)
+
+        weight_batch = T.tensor(weight_batch, dtype=T.float32, device=device)
+        action_batch = T.tensor(action_batch, dtype=T.int64, device=device).unsqueeze(
+            -1
+        )
         param_batch = T.tensor(np.array(param_batch), dtype=T.float32, device=device)
-        target_value = T.tensor(target_value).float().to(device)
-        target_reward = T.tensor(target_reward).float().to(device)
-        target_policy = T.tensor(target_policy).float().to(device)
-        gradient_scale_batch = T.tensor(gradient_scale_batch).float().to(device)
-        # observation_batch: batch, channels, height, width
-        # action_batch: batch, num_unroll_steps+1, 1 (unsqueeze)
-        # target_value: batch, num_unroll_steps+1
-        # target_reward: batch, num_unroll_steps+1
-        # target_policy: batch, num_unroll_steps+1, len(action_space)
-        # gradient_scale_batch: batch, num_unroll_steps+1
+        target_value = T.tensor(target_value, dtype=T.float32, device=device)
+        target_reward = T.tensor(target_reward, dtype=T.float32, device=device)
+        target_policy = T.tensor(target_policy, dtype=T.float32, device=device)
+        gradient_scale_batch = T.tensor(
+            gradient_scale_batch, dtype=T.float32, device=device
+        )
+
+        # observation_batch: Anything since its collated RawObservations
+        # weight_batch: (batch_size)
+        # action_batch: (batch_size, num_unroll_steps + 1, 1)
+        # param_batch: (batch_size, num_unroll_steps + 1, sum(action_space))
+        # target_value: (batch_size, num_unroll_steps + 1)
+        # target_reward: (batch_size, num_unroll_steps + 1)
+        # target_policy: (batch_size, num_unroll_steps + 1, len(action_space))
+        # gradient_scale_batch: (batch_size, num_unroll_steps + 1)
 
         target_value = scalar_to_support(target_value, self.config.support_size)
         target_reward = scalar_to_support(target_reward, self.config.support_size)
-        # target_value: batch, num_unroll_steps+1, 2*support_size+1
-        # target_reward: batch, num_unroll_steps+1, 2*support_size+1
+        
+        # target_value: (batchs_size,  num_unroll_steps + 1,  2 * support_size + 1)
+        # target_reward: (batch_size, num_unroll_steps + 1, 2 * support_size + 1)
 
         ## Generate predictions
         value, reward, policy_logits, continuous_logits, hidden_state = (
