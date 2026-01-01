@@ -1,12 +1,119 @@
+import json
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
 import numpy as np
 import torch as T
 from torch import nn
 from torch_geometric.data import Batch, Data  # type: ignore
 from typing_extensions import Any, Literal, Type, Union
 
+# A raw observation is the result of a call to `step` or `reset` on an environment
+# A collated observation is the result of batching a list of raw observations
+# Run mode is to set the environment / dataset into various modes
 RawObservation = Union[np.ndarray, Data]
 CollatedObservation = Union[T.Tensor, Batch]
 RunMode = Literal["train"] | Literal["eval"] | Literal["test"]
+
+
+@dataclass
+class MuZeroConfig:
+    """
+    A data class holding the config for MuZero
+    """
+
+    ### Basic config
+
+    # The name of the experiment for checkpointing / saving
+    experiment_name: str
+    # Random see for numpy, pytorch, and the envirionment
+    seed: int
+
+    ### Environment config
+
+    # Extra arguments passed to the envirionment constructor
+    env_config: dict[str, Any]
+    # Game dimensions, size of observation as well as action space,
+    # which are discrete actions tied to some number of continuous parameters
+    observation_size: int
+    action_space: list[int]
+
+    ### Model config
+
+    # Model type and extra arguments passed to the model constructor
+    model_type: str
+    model_config: dict[str, Any]
+    # The support size for the value and reward models which predict supports instead of scalars
+    support_size: int
+
+    ### Ray config
+
+    # Number of workers for various code functions, like self play, eval, and test
+    num_self_play_workers: int
+    num_eval_workers: int
+    num_test_workers: int
+
+    ### MCTS config
+
+    # Number of MCTS simulations to run
+    num_simulations: int
+    # Number of samples of continuous parameters during MCTS branching
+    num_continuous_samples: int
+    # Number of stacked observations to feed into the model
+    stacked_observations: int
+    # Chronological reward discount
+    discount: float
+    # Root prior exploration noise
+    root_dirichlet_alpha: float
+    root_exploration_fraction: float
+    # Hyperparameters for the UCB formula
+    pb_c_base: float
+    pb_c_init: float
+    # Temperature for action selection during self play, linearly interpolated between these two values
+    temperature_start: float
+    temperature_end: float
+
+    ### Training config
+
+    # Total number of training steps
+    training_steps: int
+    # Batch size for training
+    batch_size: int
+    # Number of training steps per checkpoint
+    checkpoint_interval: int
+    # Scale the value loss to avoid overfitting of the value function, paper recommends 0.25 (See paper appendix Reanalyze)
+    value_loss_weight: float
+    # L2 weights regularization
+    weight_decay: float
+    # Exponential learning rate schedule
+    lr_init: float
+    lr_decay_rate: float
+    lr_decay_steps: int
+    # Maximum number of self-play games to keep in the replay buffer
+    replay_buffer_size: int
+    # Number of steps the game is enrolled during training to create a batch
+    num_unroll_steps: int
+    # Number of steps used to calculate the target value
+    td_steps: int
+    # How much priority is given during game selection from the replay buffer
+    priority_alpha: float
+    # Number of seconds to weight after each training step
+    training_delay: float
+
+
+def load_config() -> MuZeroConfig:
+    if len(sys.argv) < 2:
+        raise ValueError("config path must be passed as first argument")
+
+    path = Path(sys.argv[1])
+
+    if not path.exists() or not path.is_file():
+        raise ValueError(f"{path} is not a valid path to a config")
+
+    config = MuZeroConfig(**json.load(open(path)))
+
+    return config
 
 
 def collate_observations(observations: list[RawObservation]) -> CollatedObservation:
@@ -24,7 +131,18 @@ def collate_observations(observations: list[RawObservation]) -> CollatedObservat
 
 
 def dict_to_cpu(dictionary: dict[str, Any]) -> dict[str, Any]:
+    """
+    Recursively moves all tensors in the dictionary onto the cpu
+
+    Args:
+        dictionary (dict[str, Any]): The dictionary
+
+    Returns:
+        dict[str, Any]: The dictionary with all tensors on cpu
+    """
+
     cpu_dict: dict[str, Any] = {}
+
     for key, value in dictionary.items():
         if isinstance(value, T.Tensor):
             cpu_dict[key] = value.cpu()
@@ -32,6 +150,7 @@ def dict_to_cpu(dictionary: dict[str, Any]) -> dict[str, Any]:
             cpu_dict[key] = dict_to_cpu(value)
         else:
             cpu_dict[key] = value
+
     return cpu_dict
 
 
@@ -158,21 +277,6 @@ def get_param_mask(actions: T.Tensor, action_space: list[int]) -> T.Tensor:
     mask = (param_indices >= start_idxs) & (param_indices < end_idxs)
 
     return mask
-
-
-def one_hot_encode(x: T.Tensor, n: int) -> T.Tensor:
-    """
-    One hot encodes a nx1 vector x
-    """
-
-    one_hot = T.zeros(
-        (x.shape[0], n),
-        dtype=T.float32,
-        device=x.device,
-    )
-    one_hot.scatter_(1, x.to(T.int64), 1.0)
-
-    return one_hot
 
 
 def mlp(

@@ -1,8 +1,6 @@
 import copy
-from pathlib import Path
 
 import ray
-import torch as T
 from typing_extensions import Any, Self
 
 
@@ -11,18 +9,10 @@ class SharedStorage:
     Class which run in a dedicated thread to store the network weights and some information.
     """
 
-    def __init__(self: Self, checkpoint: dict[str, Any], results_path: Path) -> None:
-        self.current_checkpoint = copy.deepcopy(checkpoint)
-
-        self.results_path = results_path
+    def __init__(self: Self, initial_checkpoint: dict[str, Any]) -> None:
+        self.current_checkpoint = copy.deepcopy(initial_checkpoint)
 
     @ray.method
-    def save_checkpoint(self: Self, path: Path | None) -> None:
-        if not path:
-            path = self.results_path / "model.checkpoint"
-
-        T.save(self.current_checkpoint, path)
-
     def get_checkpoint(self: Self) -> dict[str, Any]:
         return copy.deepcopy(self.current_checkpoint)
 

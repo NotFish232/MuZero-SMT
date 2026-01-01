@@ -5,8 +5,7 @@ from torch_geometric import nn as TGnn  # type: ignore
 from torch_geometric.data import Batch  # type: ignore
 from typing_extensions import Self, override
 
-from mu_zero_smt.utils.config import MuZeroConfig
-from mu_zero_smt.utils.utils import mlp
+from mu_zero_smt.utils import MuZeroConfig, mlp
 
 from .mu_zero_network import MuZeroNetwork
 

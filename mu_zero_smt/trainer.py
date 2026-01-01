@@ -12,8 +12,8 @@ from typing_extensions import Any, Self
 from mu_zero_smt.models.graph_network import MuZeroNetwork
 from mu_zero_smt.replay_buffer import ReplayBuffer
 from mu_zero_smt.shared_storage import SharedStorage
-from mu_zero_smt.utils.config import MuZeroConfig
-from mu_zero_smt.utils.utils import (
+from mu_zero_smt.utils import (
+    MuZeroConfig,
     collate_observations,
     dict_to_cpu,
     get_param_mask,
@@ -87,6 +87,8 @@ class Trainer:
             # Save new priorities in the replay buffer (See https://arxiv.org/abs/1803.00933)
             replay_buffer.update_priorities.remote(priorities, index_batch)
 
+            self.training_step += 1
+
             # Save to the shared storage
             if self.training_step % self.config.checkpoint_interval == 0:
                 shared_storage.set_info_batch.remote(
@@ -97,27 +99,6 @@ class Trainer:
                         ),
                     }
                 )
-
-                # Save model weights
-                shared_storage.save_checkpoint.remote(None)
-
-                # Save replay buffer
-                # replay_buffer_path = self.config.results_path / "replay_buffer.pkl"
-                # pickle.dump(
-                #     {
-                #         "buffer": ray.get(replay_buffer.get_buffer.remote()),
-                #         "num_played_games": ray.get(
-                #             shared_storage.get_info.remote("num_played_games")
-                #         ),
-                #         "num_played_steps": ray.get(
-                #             shared_storage.get_info.remote("num_played_steps")
-                #         ),
-                #         "num_reanalysed_games": ray.get(
-                #             shared_storage.get_info.remote("num_reanalysed_games")
-                #         ),
-                #     },
-                #     open(replay_buffer_path, "wb"),
-                # )
 
             shared_storage.set_info_batch.remote(
                 {
@@ -134,17 +115,6 @@ class Trainer:
             # Managing the self-play / training ratio
             if self.config.training_delay:
                 time.sleep(self.config.training_delay)
-            if self.config.ratio:
-                while (
-                    self.training_step
-                    / max(
-                        1, ray.get(shared_storage.get_info.remote("num_played_steps"))
-                    )
-                    > self.config.ratio
-                    and self.training_step < self.config.training_steps
-                    and not ray.get(shared_storage.get_info.remote("terminate"))
-                ):
-                    time.sleep(0.5)
 
     def update_weights(self, batch):
         """
@@ -311,7 +281,6 @@ class Trainer:
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        self.training_step += 1
 
         return (
             priorities,

@@ -8,7 +8,7 @@ from torch.nn import functional as F
 from torch_geometric.data import Data  # type: ignore
 from typing_extensions import Any, Self, override
 
-from mu_zero_smt.utils.utils import RawObservation
+from mu_zero_smt.utils import RawObservation
 
 
 class SMTEmbeddings(ABC):
@@ -17,11 +17,11 @@ class SMTEmbeddings(ABC):
     """
 
     @staticmethod
-    def new(embedding_type: str, embedding_args: dict[str, Any]) -> "SMTEmbeddings":
+    def new(embedding_type: str, embedding_config: dict[str, Any]) -> "SMTEmbeddings":
         if embedding_type == "probe":
-            return ProbeSMTEmbeddings(**embedding_args)
+            return ProbeSMTEmbeddings(**embedding_config)
         elif embedding_type == "graph":
-            return GraphSMTEmbeddings(**embedding_args)
+            return GraphSMTEmbeddings(**embedding_config)
 
         raise ValueError(f'Unknown embedding type: "{embedding_type}"')
 
@@ -92,6 +92,8 @@ class GraphSMTEmbeddings(SMTEmbeddings):
         for ref in goal:
             queue.append((ref, -1))
 
+        # Runs a BFS on the AST of the formula until either all nodes are visited
+        # or until we reached max_num_nodes
         while len(queue) > 0 and len(visited) < self.max_num_nodes:
             ref, parent = queue.popleft()
 
@@ -142,16 +144,15 @@ class GraphSMTEmbeddings(SMTEmbeddings):
                 var_id = var_to_id[name]
                 var_embedding = F.one_hot(T.tensor(var_id), num_variable_names)
 
-            node_embedding = T.concat((op_embedding, var_embedding))
-
-            node_embeddings.append(node_embedding)
+            # Full embedding is just one-hot encoded operator + one-hot encoded variable name
+            node_embeddings.append(T.concat((op_embedding, var_embedding)))
 
         if len(node_embeddings) > 0:
             node_embeddings_tensor = T.stack(node_embeddings)
         else:
             node_embeddings_tensor = T.empty(0, self.embedding_size)
 
-        # Add the other direction of edges and transpose + make it contiguous
+        # Transpose the edges and make them contiguous
         if len(edges) > 0:
             edges_tensor = T.tensor(list(edges), dtype=T.int64)
             edges_tensor = edges_tensor.T.contiguous()

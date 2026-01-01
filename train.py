@@ -1,5 +1,4 @@
 import os
-import pathlib
 import pickle
 import time
 from datetime import datetime
@@ -15,6 +14,7 @@ os.environ["RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO"] = "0"
 os.environ["RAY_DEDUP_LOGS"] = "0"
 
 import ray
+from ray.actor import ActorProxy
 
 from mu_zero_smt.environments.base_environment import BaseEnvironment
 from mu_zero_smt.environments.smt import SMTEnvironment
@@ -23,8 +23,7 @@ from mu_zero_smt.replay_buffer import ReplayBuffer
 from mu_zero_smt.self_play import GameHistory, SelfPlay
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.trainer import Trainer
-from mu_zero_smt.utils.config import MuZeroConfig, load_config
-from mu_zero_smt.utils.utils import dict_to_cpu
+from mu_zero_smt.utils import MuZeroConfig, dict_to_cpu, load_config
 
 
 class MuZero:
@@ -32,15 +31,8 @@ class MuZero:
     Main class to manage MuZero.
 
     Args:
-        game_name (str): Name of the game module, it should match the name of a .py file
-        in the "./games" directory.
-
-        config (dict, MuZeroConfig, optional): Override the default config of the game.
-
-    Example:
-        >>> muzero = MuZero("cartpole")
-        >>> muzero.train()
-        >>> muzero.test(render=True)
+        Environment (Type[BaseEnvironment]): The Environment used for training
+        config (MuZeroConfig, optional): The configuration for training
     """
 
     def __init__(
@@ -98,6 +90,12 @@ class MuZero:
 
         self.checkpoint["weights"] = dict_to_cpu(model.state_dict())
 
+        self.shared_storage_worker: ActorProxy[SharedStorage] | None = None
+        self.replay_buffer_worker: ActorProxy[ReplayBuffer] | None = None
+        self.training_worker: ActorProxy[Trainer] | None = None
+        self.self_play_workers: list[ActorProxy[SelfPlay]] | None = None
+        self.eval_workers: list[ActorProxy[SelfPlay]] | None = None
+
     def train(self: Self) -> None:
         """
         Spawn ray workers and launch the training.
@@ -116,7 +114,7 @@ class MuZero:
         self.shared_storage_worker = (
             ray.remote(SharedStorage)
             .options(name="shared_storage_worker", num_cpus=0)
-            .remote(self.checkpoint, self.results_path)
+            .remote(self.checkpoint)
         )
         self.shared_storage_worker.set_info.remote("terminate", False)
 
@@ -140,7 +138,6 @@ class MuZero:
                 self.Environment,
                 "train",
                 self.config,
-                self.config.seed + i,
                 i,
             )
             for i in range(self.config.num_self_play_workers)
@@ -154,14 +151,12 @@ class MuZero:
                 self.Environment,
                 "eval",
                 self.config,
-                self.config.seed + self.config.num_self_play_workers + i,
                 i,
             )
             for i in range(self.config.num_eval_workers)
         ]
 
         # Launch workers
-
         self.training_worker.continuous_update_weights.remote(
             self.replay_buffer_worker, self.shared_storage_worker
         )
@@ -182,6 +177,9 @@ class MuZero:
         Keep track of the training performance.
         """
 
+        # All workers must be setup by this point
+        assert self.shared_storage_worker is not None
+
         # Write everything in TensorBoard
         writer = SummaryWriter(self.results_path)
 
@@ -197,6 +195,7 @@ class MuZero:
             "finished_eval_workers",
             "self_play_results",
             "eval_results",
+            "full_eval_results",
             # Stats
             "num_played_games",
             "num_played_steps",
@@ -209,6 +208,7 @@ class MuZero:
             "param_loss",
         ]
         info = ray.get(self.shared_storage_worker.get_info_batch.remote(keys))
+
         try:
             while info["training_step"] < self.config.training_steps:
                 info = ray.get(self.shared_storage_worker.get_info_batch.remote(keys))
@@ -254,7 +254,8 @@ class MuZero:
                 )
                 writer.add_scalar(
                     "2.Workers/2.Eval_played_games",
-                    len(info["eval_results"]),
+                    sum(len(e) for e in info["full_eval_results"])
+                    + len(info["eval_results"]),
                     counter,
                 )
                 writer.add_scalar(
@@ -277,6 +278,9 @@ class MuZero:
                 writer.add_scalar("3.Loss/4.Policy_loss", info["policy_loss"], counter)
                 writer.add_scalar("3.Loss/5.Param_loss", info["param_loss"], counter)
 
+                if info["training_step"] % self.config.checkpoint_interval == 0:
+                    self.save_checkpoint()
+
                 counter += 1
 
                 p_bar.n = info["training_step"]
@@ -289,61 +293,67 @@ class MuZero:
 
         self.terminate_workers()
 
-    def terminate_workers(self):
+    def terminate_workers(self: Self) -> None:
         """
         Softly terminate the running tasks and garbage collect the workers.
         """
+
         if self.shared_storage_worker:
             self.shared_storage_worker.set_info.remote("terminate", True)
             self.checkpoint = ray.get(
                 self.shared_storage_worker.get_checkpoint.remote()
             )
-        if self.replay_buffer_worker:
-            self.replay_buffer = ray.get(self.replay_buffer_worker.get_buffer.remote())
-
-        print("\nShutting down workers...")
 
         self.self_play_workers = None
-        self.test_worker = None
+        self.eval_workers = None
         self.training_worker = None
         self.replay_buffer_worker = None
         self.shared_storage_worker = None
 
-    def load_model(self, checkpoint_path=None, replay_buffer_path=None):
+    def save_checkpoint(self: Self) -> None:
+        assert (
+            self.shared_storage_worker is not None
+            and self.replay_buffer_worker is not None
+        )
+
+        # Save model weights
+        checkpoint_keys = [
+            "weights",
+            "eval_weights",
+            "best_weights",
+            "optimizer_state",
+            "best_weights_percent",
+            "self_play_results",
+            "full_eval_results",
+            "training_step",
+            "num_played_games",
+            "num_played_steps",
+        ]
+        checkpoint = ray.get(
+            self.shared_storage_worker.get_info_batch.remote(checkpoint_keys)
+        )
+        T.save(checkpoint, self.results_path / "model.checkpoint")
+
+        # Save replay buffer
+        with open(self.results_path / "replay_buffer.pkl", "wb") as f:
+            pickle.dump(ray.get(self.replay_buffer_worker.get_buffer.remote()), f)
+
+    def load_checkpoint(self: Self, checkpoint_path: Path) -> None:
         """
-        Load a model and/or a saved replay buffer.
+        Load a model and  saved replay buffer.
 
         Args:
-            checkpoint_path (str): Path to model.checkpoint or model.weights.
-
-            replay_buffer_path (str): Path to replay_buffer.pkl
+            checkpoint_path (Path): Path to directory containing model.checkpoint and replay_buffer.pkl
         """
+
         # Load checkpoint
-        if checkpoint_path:
-            checkpoint_path = pathlib.Path(checkpoint_path)
-            self.checkpoint = T.load(checkpoint_path, weights_only=False)
-            print(f"\nUsing checkpoint from {checkpoint_path}")
+        self.checkpoint.update(
+            T.load(checkpoint_path / "model.checkpoint", weights_only=False)
+        )
 
         # Load replay buffer
-        if replay_buffer_path:
-            replay_buffer_path = pathlib.Path(replay_buffer_path)
-            with open(replay_buffer_path, "rb") as f:
-                replay_buffer_infos = pickle.load(f)
-            self.replay_buffer = replay_buffer_infos["buffer"]
-            self.checkpoint["num_played_steps"] = replay_buffer_infos[
-                "num_played_steps"
-            ]
-            self.checkpoint["num_played_games"] = replay_buffer_infos[
-                "num_played_games"
-            ]
-
-            print(f"\nInitializing replay buffer with {replay_buffer_path}")
-        else:
-            print(f"Using empty buffer.")
-            self.replay_buffer = {}
-            self.checkpoint["training_step"] = 0
-            self.checkpoint["num_played_steps"] = 0
-            self.checkpoint["num_played_games"] = 0
+        with open(checkpoint_path / "replay_buffer.pkl", "rb") as f:
+            self.replay_buffer = pickle.load(f)
 
 
 def main() -> None:

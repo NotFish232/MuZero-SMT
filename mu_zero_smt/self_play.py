@@ -14,12 +14,13 @@ from mu_zero_smt.environments.base_environment import BaseEnvironment
 from mu_zero_smt.models.graph_network import MuZeroNetwork
 from mu_zero_smt.replay_buffer import ReplayBuffer
 from mu_zero_smt.shared_storage import SharedStorage
-from mu_zero_smt.utils.config import MuZeroConfig
-from mu_zero_smt.utils.utils import (
+from mu_zero_smt.utils import (
+    MuZeroConfig,
     RawObservation,
     RunMode,
     collate_observations,
     dict_to_cpu,
+    get_param_mask,
     sample_continuous_params,
     support_to_scalar,
 )
@@ -36,18 +37,18 @@ class SelfPlay:
         Environment: Type[BaseEnvironment],
         mode: RunMode,
         config: MuZeroConfig,
-        seed: int,
         worker_id: int,
     ) -> None:
         self.config = config
-        self.seed = seed
         self.worker_id = worker_id
 
         # Fix random generator seed
+        seed = config.seed + worker_id
+
         np.random.seed(seed)
         T.manual_seed(seed)
 
-        self.env = Environment(mode, seed=self.seed, **self.config.env_config)
+        self.env = Environment(mode, seed=seed, **self.config.env_config)
         self.mode = mode
 
         # Initialize the network
@@ -66,15 +67,13 @@ class SelfPlay:
         Runs continuous self play with an environment
         """
 
-        while ray.get(
-            shared_storage.get_info.remote("training_step")
-        ) < self.config.training_steps and not ray.get(
-            shared_storage.get_info.remote("terminate")
-        ):
+        while not ray.get(shared_storage.get_info.remote("terminate")):
             self.model.load_state_dict(
                 ray.get(shared_storage.get_info.remote("weights"))
             )
 
+            # Temperature is linear interpolation between config's start and end for trainig
+            # For evaluation / test use a temperature of 0 and greedily select actions
             temperature = (
                 self.config.temperature_start
                 + (self.config.temperature_end - self.config.temperature_start)
@@ -94,10 +93,11 @@ class SelfPlay:
                 if replay_buffer is not None:
                     replay_buffer.save_game.remote(game_history, shared_storage)
             else:
+                # Complete assigned epsiodes in environment
                 ids = self.env.unique_episodes()
 
+                # Get batch based on worker_id
                 batch_size = math.ceil(len(ids) / self.config.num_eval_workers)
-
                 batch_start = self.worker_id * batch_size
                 batch_end = min(batch_start + batch_size, len(ids))
 
@@ -130,20 +130,6 @@ class SelfPlay:
                         )
                     )
                     != 0
-                ):
-                    time.sleep(1)
-
-            # Managing the self-play / training ratio
-            if self.mode == "train" and self.config.ratio:
-                while (
-                    ray.get(shared_storage.get_info.remote("training_step"))
-                    / max(
-                        1, ray.get(shared_storage.get_info.remote("num_played_steps"))
-                    )
-                    < self.config.ratio
-                    and ray.get(shared_storage.get_info.remote("training_step"))
-                    < self.config.training_steps
-                    and not ray.get(shared_storage.get_info.remote("terminate"))
                 ):
                     time.sleep(1)
 
@@ -186,10 +172,12 @@ class SelfPlay:
                 )
                 action, raw_params = SelfPlay.select_action(root, temperature)
 
-                param_start_idx = sum(self.config.action_space[:action])
-                param_end_idx = param_start_idx + self.config.action_space[action]
+                # Mask out only the parameters relevant to the selected action
+                action_mask = get_param_mask(
+                    T.tensor([[action]]), self.config.action_space
+                ).squeeze(0)
 
-                params = 1 / (1 + np.exp(-raw_params[param_start_idx:param_end_idx]))
+                params = 1 / (1 + np.exp(-raw_params[action_mask]))
 
                 observation, reward, done = self.env.step(action, params)
 
@@ -313,7 +301,7 @@ class MCTS:
             continuous_params,
         )
 
-        # Add dirichlet exploration noise to root to make children selection non-deterministic
+        # Add dirichlet exploration noise to root to make children selection not completely dependent on priors
         if add_exploration_noise:
             root.add_exploration_noise(
                 dirichlet_alpha=self.config.root_dirichlet_alpha,
@@ -373,7 +361,6 @@ class MCTS:
     ) -> tuple["MCTSNode", int, T.Tensor]:
         """
         Select the child with the highest UCB score.
-
         Args:
             node (MCTSNode): The current node that we are exploring its children
             min_max_stats (MinMaxStats): Stats of the tree for normalizing
@@ -521,13 +508,10 @@ class MCTSNode:
 
         # Initialize children with the probability predicted by the policy
         for action, policy_prob in zip(range(policy_logits.shape[1]), policy_values):
-            if continuous_params.numel() == 0:
-                self.children[action] = [(MCTSNode(policy_prob), T.empty(0))]
-            else:
-                self.children[action] = [
-                    (MCTSNode(policy_prob / continuous_params.shape[0]), c)
-                    for c in continuous_params
-                ]
+            self.children[action] = [
+                (MCTSNode(policy_prob / continuous_params.shape[0]), c)
+                for c in continuous_params
+            ]
 
     def add_exploration_noise(
         self: Self, dirichlet_alpha: float, exploration_fraction: float

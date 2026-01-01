@@ -1,10 +1,9 @@
 from abc import ABC, abstractmethod
 
 import numpy as np
-from torch_geometric.data import Data  # type: ignore
 from typing_extensions import Any, Self
 
-from mu_zero_smt.utils.utils import RawObservation, RunMode
+from mu_zero_smt.utils import RawObservation, RunMode
 
 
 class BaseEnvironment(ABC):

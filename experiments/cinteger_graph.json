@@ -52,7 +52,7 @@
       }
     },
     "embedding_type": "graph",
-    "embedding_args": {
+    "embedding_config": {
       "embedding_size": 384,
       "max_num_nodes": 1024
     },
@@ -99,7 +99,6 @@
   "td_steps": 3,
   "priority_alpha": 0.5,
   "training_delay": 2,
-  "ratio": null,
   "temperature_start": 1,
   "temperature_end": 0.25
 }

@@ -6,7 +6,7 @@ from ray.actor import ActorProxy
 from typing_extensions import TYPE_CHECKING, Any, Self
 
 from mu_zero_smt.shared_storage import SharedStorage
-from mu_zero_smt.utils.config import MuZeroConfig
+from mu_zero_smt.utils import MuZeroConfig
 
 if TYPE_CHECKING:
     from mu_zero_smt.self_play import GameHistory
@@ -57,11 +57,6 @@ class ReplayBuffer:
             len(buffer_entry.game_history.root_values)
             for buffer_entry in self.buffer.values()
         )
-
-        if self.total_samples != 0:
-            print(
-                f"Replay buffer initialized with {self.total_samples} samples ({self.num_played_games} games).\n"
-            )
 
         # Fix random generator seed
         np.random.seed(self.config.seed)

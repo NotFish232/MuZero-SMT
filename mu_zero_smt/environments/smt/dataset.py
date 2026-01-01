@@ -10,7 +10,7 @@ from torch.utils.data import Dataset
 from tqdm import tqdm  # type: ignore
 from typing_extensions import Self
 
-from mu_zero_smt.utils.utils import RunMode
+from mu_zero_smt.utils import RunMode
 
 SMT_LIB_RELEASE = "https://zenodo.org/records/16740866"
 

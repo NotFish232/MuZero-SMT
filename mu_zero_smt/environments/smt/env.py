@@ -5,7 +5,7 @@ import numpy as np
 import z3  # type: ignore
 from typing_extensions import Any, Self, override
 
-from mu_zero_smt.utils.utils import RawObservation, RunMode
+from mu_zero_smt.utils import RawObservation, RunMode
 
 from ..base_environment import BaseEnvironment
 from .dataset import SMTDataset
@@ -15,7 +15,7 @@ from .embeddings import SMTEmbeddings
 def map_raw_val(raw_val: float, typ: str) -> Any:
     """
     Maps a raw value with a type to the actual value fed into the network
-    For instance if the typ is bool, true if >= 0.5 else false
+    For instance if the typ is bool, true if the raw_val >= 0.5 else false
     """
 
     if typ == "bool":
@@ -36,13 +36,14 @@ class SMTEnvironment(BaseEnvironment):
         *,
         benchmark: str,
         embedding_type: str,
-        embedding_args: dict[str, Any],
+        embedding_config: dict[str, Any],
         tactics: dict[str, dict[str, str]],
         solving_timeout: float,
         max_num_tactics: int,
         split: dict[RunMode, float],
     ) -> None:
         self.mode = mode
+
         random.seed(seed)
 
         self.benchmark = benchmark
@@ -51,15 +52,14 @@ class SMTEnvironment(BaseEnvironment):
         self.tactic_parameters = tactics
 
         # Embeds the formula
-        self.embedder = SMTEmbeddings.new(embedding_type, embedding_args)
+        self.embedder = SMTEmbeddings.new(embedding_type, embedding_config)
 
         self.solving_timeout = solving_timeout
         self.max_num_tactics = max_num_tactics
 
-        self.split = split
+        self.dataset = SMTDataset(self.benchmark, self.mode, split)
 
-        self.dataset = SMTDataset(self.benchmark, self.mode, self.split)
-
+        # Environment data that resets each episode
         self.time_spent = 0.0
         self.tactics_applied: list[tuple[str, dict[str, Any]]] = []
 

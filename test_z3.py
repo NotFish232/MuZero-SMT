@@ -11,8 +11,7 @@ from tqdm import tqdm  # type: ignore
 
 from mu_zero_smt.environments.smt.dataset import SMTDataset
 from mu_zero_smt.shared_storage import SharedStorage
-from mu_zero_smt.utils.config import load_config
-from mu_zero_smt.utils.utils import RunMode
+from mu_zero_smt.utils import RunMode, load_config
 
 
 @ray.remote

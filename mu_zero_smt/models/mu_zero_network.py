@@ -2,11 +2,9 @@ from abc import ABC, abstractmethod
 
 import torch as T
 from torch import nn
-from torch_geometric.data import Batch  # type: ignore
 from typing_extensions import Self
 
-from mu_zero_smt.utils.config import MuZeroConfig
-from mu_zero_smt.utils.utils import CollatedObservation
+from mu_zero_smt.utils import CollatedObservation, MuZeroConfig
 
 
 class MuZeroNetwork(ABC, nn.Module):
@@ -19,11 +17,6 @@ class MuZeroNetwork(ABC, nn.Module):
         """
         Constructs the network based on the config
         """
-
-        if config.model_type == "ftc":
-            from .ftc_network import FTCNetwork
-
-            return FTCNetwork.from_config(config)
         if config.model_type == "graph":
             from .graph_network import GraphNetwork
 

@@ -10,7 +10,7 @@ from tqdm import tqdm  # type: ignore
 from mu_zero_smt.environments.smt import SMTEnvironment
 from mu_zero_smt.self_play import SelfPlay
 from mu_zero_smt.shared_storage import SharedStorage
-from mu_zero_smt.utils.config import load_config
+from mu_zero_smt.utils import load_config
 
 
 def main() -> None:
@@ -34,7 +34,6 @@ def main() -> None:
                 "test_results": [],
                 "finished_test_workers": [],
                 "weights": checkpoint["best_weights"],
-                "training_step": 0,
                 "terminate": False,
             },
             None,
@@ -49,7 +48,6 @@ def main() -> None:
             SMTEnvironment,
             "test",
             config,
-            config.seed + i,
             i,
         )
         for i in range(config.num_test_workers)
