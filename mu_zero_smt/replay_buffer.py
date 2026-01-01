@@ -307,7 +307,7 @@ class ReplayBuffer:
         for i, reward in enumerate(
             entry.game_history.reward_history[idx + 1 : bootstrap_index + 1]
         ):
-            # Accumulate the total reward discounted by the dicsunt factor
+            # Accumulate the total reward discounted by the discount factor
             value += reward * self.config.discount**i
 
         return value

@@ -88,8 +88,10 @@ class SMTEnvironment(BaseEnvironment):
 
         tactic = self.tactics[action]
 
+
         param_to_val = {}
 
+        # Map the raw parameter value passed into the actual value used in the solver
         for idx, (p_name, typ) in enumerate(self.tactic_parameters[tactic].items()):
             # Timeout is special, its a fraction of the remaining time
             if p_name == "timeout":

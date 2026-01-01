@@ -147,20 +147,13 @@ class GraphNetwork(MuZeroNetwork):
 
         policy_discrete_logits = self.policy_discrete_head(policy_latent_state)
 
+        # Model predicts means and log of variance
         policy_continuous_logits = T.concat(
             [
                 h(policy_latent_state).reshape(-1, dim, 2)
                 for h, dim in zip(self.policy_continuous_heads, self.action_space)
             ],
             dim=1,
-        )
-
-        # Ensure variances are strictly positive
-        policy_continuous_means = policy_continuous_logits[:, :, 0]
-        policy_continuous_stds = F.softplus(policy_continuous_logits[:, :, 1])
-
-        policy_continuous_logits = T.stack(
-            (policy_continuous_means, policy_continuous_stds), dim=-1
         )
 
         # policy_discrete_logits: (batch_size, len(action_space))

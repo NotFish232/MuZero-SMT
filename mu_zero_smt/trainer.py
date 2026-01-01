@@ -53,7 +53,6 @@ class Trainer:
         )
 
         if initial_checkpoint["optimizer_state"] is not None:
-            print("Loading optimizer...\n")
             self.optimizer.load_state_dict(
                 copy.deepcopy(initial_checkpoint["optimizer_state"])
             )
@@ -322,8 +321,9 @@ class Trainer:
         policy_mask = (target_policy == 0).all(dim=1)
         policy_loss[policy_mask] = 0
 
+        # Param is logvar so we exponentiated it to get normal variance
         param_loss = F.gaussian_nll_loss(
-            params[:, :, 0], target_params, params[:, :, 1] ** 2, reduction="none"
+            params[:, :, 0], target_params, T.exp(params[:, :, 1]), reduction="none"
         )
 
         param_mask = get_param_mask(actions, self.config.action_space)

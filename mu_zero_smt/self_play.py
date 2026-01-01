@@ -495,9 +495,9 @@ class MCTSNode:
         neural network.
 
         Args:
-            hidden_state (torch.Tensor): The tensor encoding of the current state from the representation network
+            hidden_state (T.Tensor): The tensor encoding of the current state from the representation network
             reward (float): The reward received at this state
-            policy_logits (torch.Tensor): Logits of the policy for the current state
+            policy_logits (T.Tensor): Logits of the policy for the current state
         """
 
         self.hidden_state = hidden_state

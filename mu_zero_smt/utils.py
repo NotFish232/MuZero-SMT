@@ -162,12 +162,12 @@ def support_to_scalar(
     See paper appendix Network Architecture
 
     Args:
-        logits (torch.Tensor - shape (x_1, ..., x_n, 2 * support_size + 1): The tensor with last dimension of supports
+        logits (T.Tensor - shape (x_1, ..., x_n, 2 * support_size + 1): The tensor with last dimension of supports
         support_size (int): The number of supports
         eps (float): A small epsilon used for inverting the scaling of x
 
     Returns:
-        torch.Tensor - shape (x_1, ..., x_n): Tensor of scaler values recovered from supports
+        T.Tensor - shape (x_1, ..., x_n): Tensor of scaler values recovered from supports
     """
 
     # Softmax the logits so it sums up to one
@@ -193,12 +193,12 @@ def scalar_to_support(x: T.Tensor, support_size: int, eps: float = 1e-3) -> T.Te
     See paper appendix Network Architecture
 
     Args:
-        x (torch.Tensor - shape (x_1, ..., x_n)): The tensor of scalars to conver to supports
+        x (T.Tensor - shape (x_1, ..., x_n)): The tensor of scalars to conver to supports
         support_size (int): The number of supports
         eps (float): An epsilon for the scaling of x
 
     Returns:
-        torch.Tensor - shape (x_1, ..., x_n, 2 * support_size + 1): A tensor encoded in supports
+        T.Tensor - shape (x_1, ..., x_n, 2 * support_size + 1): A tensor encoded in supports
     """
 
     # Reduce the scale (defined in https://arxiv.org/abs/1805.11593)
@@ -246,7 +246,9 @@ def sample_continuous_params(
     """
 
     means = continuous_logits[:, 0]
-    stds = continuous_logits[:, 1]
+
+    # Converts from log variance to standard deviation
+    stds = T.exp(0.5 * continuous_logits[:, 1])
 
     return means + stds * T.randn(num_continuous_samples, continuous_logits.shape[0])
 
