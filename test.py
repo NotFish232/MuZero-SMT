@@ -35,8 +35,7 @@ def main() -> None:
                 "finished_test_workers": [],
                 "weights": checkpoint["best_weights"],
                 "terminate": False,
-            },
-            None,
+            }
         )
     )
 
