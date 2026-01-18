@@ -82,7 +82,7 @@ def main() -> None:
     shared_storage = (
         ray.remote(SharedStorage)
         .options(name="shared_storage_worker", num_cpus=0)
-        .remote({split_name: [] for split_name in split.keys()}, None)
+        .remote({split_name: [] for split_name in split.keys()})
     )
 
     for batch_split in batch_splits:
