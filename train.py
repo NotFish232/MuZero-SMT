@@ -1,3 +1,4 @@
+import copy
 import os
 import pickle
 import time
@@ -59,16 +60,16 @@ class MuZero:
 
         # Checkpoint and replay buffer used to initialize workers
         self.checkpoint: dict[str, Any] = {
-            "weights": None,
+            "train_weights": None,
             "optimizer_state": None,
             "eval_weights": None,
             "best_weights": None,
             "best_weights_percent": 0,
             # Metrics
             "finished_eval_workers": [],
-            "self_play_results": [],
+            "train_results": [],
             "eval_results": [],
-            "full_eval_results": [],
+            "eval_results_history": [],
             "training_step": 0,
             # Statistics
             "num_played_games": 0,
@@ -88,7 +89,10 @@ class MuZero:
 
         model = MuZeroNetwork.from_config(self.config)
 
-        self.checkpoint["weights"] = dict_to_cpu(model.state_dict())
+        self.checkpoint["train_weights"] = dict_to_cpu(model.state_dict())
+        self.checkpoint["eval_weights"] = copy.deepcopy(
+            dict_to_cpu(self.checkpoint["train_weights"])
+        )
 
         self.shared_storage_worker: ActorProxy[SharedStorage] | None = None
         self.replay_buffer_worker: ActorProxy[ReplayBuffer] | None = None
@@ -137,8 +141,10 @@ class MuZero:
                 self.checkpoint,
                 self.Environment,
                 "train",
+                False,
                 self.config,
                 i,
+                self.config.num_self_play_workers,
             )
             for i in range(self.config.num_self_play_workers)
         ]
@@ -150,8 +156,10 @@ class MuZero:
                 self.checkpoint,
                 self.Environment,
                 "eval",
+                True,
                 self.config,
                 i,
+                self.config.num_eval_workers,
             )
             for i in range(self.config.num_eval_workers)
         ]
@@ -189,13 +197,14 @@ class MuZero:
         counter = 0
         keys = [
             "training_step",
+            "train_weights",
             "eval_weights",
             "best_weights_percent",
             # Metrics
             "finished_eval_workers",
-            "self_play_results",
+            "train_results",
             "eval_results",
-            "full_eval_results",
+            "eval_results_history",
             # Stats
             "num_played_games",
             "num_played_steps",
@@ -216,8 +225,8 @@ class MuZero:
                 writer.add_scalar(
                     "1.Metrics/1.Self_Play_Percent_Solved",
                     (
-                        np.mean([x["successful"] for x in info["self_play_results"]])
-                        if len(info["self_play_results"]) > 0
+                        np.mean([x["successful"] for x in info["train_results"]])
+                        if len(info["train_results"]) > 0
                         else 0
                     ),
                     counter,
@@ -241,7 +250,10 @@ class MuZero:
                     )
 
                     self.shared_storage_worker.update_info.remote(
-                        "full_eval_results", info["eval_results"]
+                        "eval_results_history", info["eval_results"]
+                    )
+                    self.shared_storage_worker.set_info.remote(
+                        "eval_weights", info["train_weights"]
                     )
                     self.shared_storage_worker.set_info_batch.remote(
                         {"eval_results": [], "finished_eval_workers": []}
@@ -254,7 +266,7 @@ class MuZero:
                 )
                 writer.add_scalar(
                     "2.Workers/2.Eval_played_games",
-                    sum(len(e) for e in info["full_eval_results"])
+                    sum(len(e) for e in info["eval_results_history"])
                     + len(info["eval_results"]),
                     counter,
                 )
@@ -318,13 +330,13 @@ class MuZero:
 
         # Save model weights
         checkpoint_keys = [
-            "weights",
+            "train_weights",
+            "optimizer_state",
             "eval_weights",
             "best_weights",
-            "optimizer_state",
             "best_weights_percent",
-            "self_play_results",
-            "full_eval_results",
+            "train_results",
+            "eval_results_history",
             "training_step",
             "num_played_games",
             "num_played_steps",

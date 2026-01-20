@@ -10,11 +10,13 @@ from tqdm import tqdm  # type: ignore
 from mu_zero_smt.environments.smt import SMTEnvironment
 from mu_zero_smt.self_play import SelfPlay
 from mu_zero_smt.shared_storage import SharedStorage
-from mu_zero_smt.utils import load_config
+from mu_zero_smt.utils import RunMode, load_config
 
 
 def main() -> None:
     config = load_config()
+
+    modes: list[RunMode] = ["train", "eval", "test"]
 
     checkpoint_dir = natsorted(
         f
@@ -24,30 +26,33 @@ def main() -> None:
 
     checkpoint = T.load(f"{checkpoint_dir}/model.checkpoint", weights_only=False)
 
+    checkpoint = (
+        {f"{mode}_weights": checkpoint["best_weights"] for mode in modes}
+        | {f"{mode}_results": [] for mode in modes}
+        | {f"finished_{mode}_workers": [] for mode in modes}
+        | {"terminate": False}
+    )
+
     ray.init(num_cpus=config.num_test_workers)
 
     shared_storage_worker = (
         ray.remote(SharedStorage)
         .options(name="shared_storage_worker", num_cpus=0)
-        .remote(
-            {
-                "test_results": [],
-                "finished_test_workers": [],
-                "weights": checkpoint["best_weights"],
-                "terminate": False,
-            }
-        )
+        .remote(checkpoint)
     )
 
+    # Give one worker to train / eval batch each and then the remaining to test
     test_workers = [
         ray.remote(SelfPlay)
         .options(name=f"test_worker_{i + 1}", num_cpus=1)
         .remote(
             checkpoint,
             SMTEnvironment,
-            "test",
+            "train" if i == 0 else "eval" if i == 1 else "test",
+            True,
             config,
-            i,
+            0 if i <= 1 else i - 2,
+            1 if i <= 1 else config.num_test_workers - 2,
         )
         for i in range(config.num_test_workers)
     ]
@@ -55,19 +60,23 @@ def main() -> None:
     for test_worker in test_workers:
         test_worker.continuous_self_play.remote(shared_storage_worker, None)
 
-    p_bar = tqdm(
-        total=len(SMTEnvironment(mode="test", **config.env_config).unique_episodes())
+    total_episodes = sum(
+        len(SMTEnvironment(mode, **config.env_config).unique_episodes())
+        for mode in modes
     )
 
-    while True:
-        info = ray.get(
-            shared_storage_worker.get_info_batch.remote(
-                ["test_results", "finished_test_workers"]
-            )
-        )
+    p_bar = tqdm(total=total_episodes)
 
-        num_successful = sum(x["successful"] for x in info["test_results"])
-        num_completed = len(info["test_results"])
+    while True:
+        keys = [f"{mode}_results" for mode in modes] + [
+            f"finished_{mode}_workers" for mode in modes
+        ]
+        info = ray.get(shared_storage_worker.get_info_batch.remote(keys))
+
+        num_successful = sum(
+            x["successful"] for mode in modes for x in info[f"{mode}_results"]
+        )
+        num_completed = sum(len(info[f"{mode}_results"]) for mode in modes)
 
         p_bar.set_description(
             f"%: {num_successful / num_completed if num_completed != 0 else 0: .3%}"
@@ -75,12 +84,19 @@ def main() -> None:
         p_bar.n = num_completed
         p_bar.update()
 
-        if len(info["finished_test_workers"]) == config.num_test_workers:
+        if (
+            sum(len(info[f"finished_{mode}_workers"]) for mode in modes)
+            == config.num_test_workers
+        ):
             break
 
         time.sleep(1)
 
-    results = ray.get(shared_storage_worker.get_info.remote("test_results"))
+    results = ray.get(
+        shared_storage_worker.get_info_batch.remote(
+            [f"{mode}_results" for mode in modes]
+        )
+    )
 
     ray.shutdown()
 

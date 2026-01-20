@@ -15,6 +15,7 @@ class BaseEnvironment(ABC):
     def __init__(
         self: Self,
         mode: RunMode,
+        shuffle: bool = True,
         seed: int | None = None,
     ) -> None:
         pass

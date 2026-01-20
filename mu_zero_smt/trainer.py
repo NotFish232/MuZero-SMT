@@ -39,7 +39,7 @@ class Trainer:
 
         # Initialize the network
         self.model = MuZeroNetwork.from_config(self.config)
-        self.model.load_state_dict(copy.deepcopy(initial_checkpoint["weights"]))
+        self.model.load_state_dict(copy.deepcopy(initial_checkpoint["train_weights"]))
         self.model.to(T.device("cpu"))
         self.model.train()
 
@@ -92,7 +92,9 @@ class Trainer:
             if self.training_step % self.config.checkpoint_interval == 0:
                 shared_storage.set_info_batch.remote(
                     {
-                        "weights": copy.deepcopy(dict_to_cpu(self.model.state_dict())),
+                        "train_weights": copy.deepcopy(
+                            dict_to_cpu(self.model.state_dict())
+                        ),
                         "optimizer_state": copy.deepcopy(
                             dict_to_cpu(self.optimizer.state_dict())
                         ),
@@ -162,7 +164,7 @@ class Trainer:
 
         target_value = scalar_to_support(target_value, self.config.support_size)
         target_reward = scalar_to_support(target_reward, self.config.support_size)
-        
+
         # target_value: (batchs_size,  num_unroll_steps + 1,  2 * support_size + 1)
         # target_reward: (batch_size, num_unroll_steps + 1, 2 * support_size + 1)
 

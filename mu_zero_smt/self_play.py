@@ -1,4 +1,3 @@
-import copy
 import math
 import random
 import time
@@ -19,7 +18,6 @@ from mu_zero_smt.utils import (
     RawObservation,
     RunMode,
     collate_observations,
-    dict_to_cpu,
     get_param_mask,
     sample_continuous_params,
     support_to_scalar,
@@ -36,11 +34,14 @@ class SelfPlay:
         initial_checkpoint: dict[str, Any],
         Environment: Type[BaseEnvironment],
         mode: RunMode,
+        single_run: bool,
         config: MuZeroConfig,
         worker_id: int,
+        num_workers: int,
     ) -> None:
         self.config = config
         self.worker_id = worker_id
+        self.num_workers = num_workers
 
         # Fix random generator seed
         seed = config.seed + worker_id
@@ -48,12 +49,15 @@ class SelfPlay:
         np.random.seed(seed)
         T.manual_seed(seed)
 
-        self.env = Environment(mode, seed=seed, **self.config.env_config)
+        self.env = Environment(
+            mode, not single_run, seed=seed, **self.config.env_config
+        )
         self.mode = mode
+        self.single_run = single_run
 
         # Initialize the network
         self.model = MuZeroNetwork.from_config(self.config)
-        self.model.load_state_dict(initial_checkpoint["weights"])
+        self.model.load_state_dict(initial_checkpoint[f"{self.mode}_weights"])
         self.model.to(T.device("cpu"))
         self.model.eval()
 
@@ -69,7 +73,7 @@ class SelfPlay:
 
         while not ray.get(shared_storage.get_info.remote("terminate")):
             self.model.load_state_dict(
-                ray.get(shared_storage.get_info.remote("weights"))
+                ray.get(shared_storage.get_info.remote(f"{self.mode}_weights"))
             )
 
             # Temperature is linear interpolation between config's start and end for trainig
@@ -79,15 +83,15 @@ class SelfPlay:
                 + (self.config.temperature_end - self.config.temperature_start)
                 * ray.get(shared_storage.get_info.remote("training_step"))
                 / self.config.training_steps
-                if self.mode == "train"
+                if not self.single_run
                 else 0
             )
 
-            if self.mode == "train":
+            if not self.single_run:
                 game_history = self.play_game(temperature)
 
                 shared_storage.update_info.remote(
-                    "self_play_results", self.env.episode_stats()
+                    f"{self.mode}_results", self.env.episode_stats()
                 )
 
                 if replay_buffer is not None:
@@ -97,22 +101,17 @@ class SelfPlay:
                 ids = self.env.unique_episodes()
 
                 # Get batch based on worker_id
-                batch_size = math.ceil(len(ids) / self.config.num_eval_workers)
+                batch_size = math.ceil(len(ids) / self.num_workers)
                 batch_start = self.worker_id * batch_size
                 batch_end = min(batch_start + batch_size, len(ids))
+
+                print(self.mode, len(ids), batch_start, batch_end)
 
                 for i in range(batch_start, batch_end):
                     self.play_game(0, ids[i])
 
                     shared_storage.update_info.remote(
                         f"{self.mode}_results", self.env.episode_stats()
-                    )
-
-                # If primary worker, save eval weights
-                if self.mode == "eval" and self.worker_id == 0:
-                    shared_storage.set_info.remote(
-                        "eval_weights",
-                        copy.deepcopy(dict_to_cpu(self.model.state_dict())),
                     )
 
                 # Notify that this worker is done

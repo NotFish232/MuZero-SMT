@@ -32,6 +32,7 @@ class SMTEnvironment(BaseEnvironment):
     def __init__(
         self: Self,
         mode: RunMode = "train",
+        shuffle: bool = True,
         seed: int | None = None,
         *,
         benchmark: str,
@@ -43,6 +44,7 @@ class SMTEnvironment(BaseEnvironment):
         split: dict[RunMode, float],
     ) -> None:
         self.mode = mode
+        self.shuffle = shuffle
 
         random.seed(seed)
 
@@ -87,7 +89,6 @@ class SMTEnvironment(BaseEnvironment):
         """
 
         tactic = self.tactics[action]
-
 
         param_to_val = {}
 
@@ -169,14 +170,14 @@ class SMTEnvironment(BaseEnvironment):
             Initial observation of the game.
         """
 
-        # Run each benchmark sequentially in test mode
+        # Run each benchmark sequentially in shuffle mode
         if episode_id is not None:
             self.selected_idx = self.dataset.id_to_idx[episode_id]
         else:
-            if self.mode in ["test", "eval"]:
-                self.selected_idx += 1
-            else:
+            if self.shuffle:
                 self.selected_idx = random.randint(0, len(self.dataset) - 1)
+            else:
+                self.selected_idx += 1
 
         self.current_goal = z3.Goal()
         self.current_goal.add(z3.parse_smt2_file(str(self.dataset[self.selected_idx])))
