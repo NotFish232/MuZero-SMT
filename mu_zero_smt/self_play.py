@@ -105,8 +105,6 @@ class SelfPlay:
                 batch_start = self.worker_id * batch_size
                 batch_end = min(batch_start + batch_size, len(ids))
 
-                print(self.mode, len(ids), batch_start, batch_end)
-
                 for i in range(batch_start, batch_end):
                     self.play_game(0, ids[i])
 
