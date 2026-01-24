@@ -79,11 +79,16 @@
   "support_size": 3,
   "model_type": "graph",
   "model_config": {
-    "encoded_state_size": 16,
-    "fc_dynamics_layers": [16, 16],
-    "fc_reward_layers": [16],
-    "fc_value_layers": [16],
-    "fc_policy_layers": [16, 16]
+    "encoded_state_size": 256,
+    "representation_hidden_channels": 256,
+    "representation_num_layers": 8,
+    "dynamics_layers": [384, 384, 384],
+    "dynamics_heads_layers": [256, 256],
+    "policy_layers": [256, 256],
+    "policy_discrete_head_layers": [256, 128],
+    "policy_continuous_heads_layers": [256],
+    "value_layers": [256, 128],
+    "reward_layers": [192]
   },
   "stacked_observations": 0,
   "training_steps": 100000,
