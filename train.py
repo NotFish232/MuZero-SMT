@@ -347,8 +347,8 @@ class MuZero:
         T.save(checkpoint, self.results_path / "model.checkpoint")
 
         # Save replay buffer
-        with open(self.results_path / "replay_buffer.pkl", "wb") as f:
-            pickle.dump(ray.get(self.replay_buffer_worker.get_buffer.remote()), f)
+        # with open(self.results_path / "replay_buffer.pkl", "wb") as f:
+        #     pickle.dump(ray.get(self.replay_buffer_worker.get_buffer.remote()), f)
 
     def load_checkpoint(self: Self, checkpoint_path: Path) -> None:
         """
