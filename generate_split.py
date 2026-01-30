@@ -4,19 +4,17 @@ import time
 from pathlib import Path
 from time import perf_counter
 
-import ray
 import pandas as pd
+import ray
 import z3  # type: ignore
+from matplotlib import pyplot as plt
 from ray.actor import ActorProxy
+from sklearn.model_selection import train_test_split
 from tqdm import tqdm  # type: ignore
 
 from mu_zero_smt.environments.smt.dataset import SMTDataset
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.utils import load_config
-from sklearn.model_selection import train_test_split
-from pathlib import Path
-
-from matplotlib import pyplot as plt
 
 
 @ray.remote
@@ -61,6 +59,8 @@ def main() -> None:
     benchmark = config.env_config["benchmark"]
     solving_timeout = config.env_config["solving_timeout"]
 
+    total = len(SMTDataset(benchmark))
+
     ray.init(num_cpus=config.num_test_workers)
 
     shared_storage = (
@@ -77,8 +77,6 @@ def main() -> None:
             worker_id,
             config.num_test_workers,
         )
-
-    total = len(SMTDataset(benchmark))
 
     p_bar = tqdm(total=total)
 

@@ -1,16 +1,13 @@
-import json
 import tarfile
 from pathlib import Path
 from urllib.request import urlretrieve
 
-import torch as T
 import zstandard  # type: ignore
 from natsort import natsorted
 from torch.utils.data import Dataset
 from tqdm import tqdm  # type: ignore
 from typing_extensions import Self
 
-from mu_zero_smt.utils import RunMode
 
 SMT_LIB_RELEASE = "https://zenodo.org/records/16740866"
 
@@ -23,8 +20,6 @@ class SMTDataset(Dataset):
         Args:
             benchmark (str): A benchmark in the format of "LOGIC/benchmark_name"
             like QF_NIA/CInteger
-            split_name (str): A key from the split dictionary
-            split (dict[str, float]): A split in the form {"key": amount}, where the sum of all amounts should be 1
         """
 
         self.logic, self.benchmark_name = benchmark.split("/")
