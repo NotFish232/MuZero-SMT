@@ -1,6 +1,7 @@
 gymnasium
 opencv-python
 pygame
+scikit-learn
 numpy
 ray[default]
 seaborn
@@ -11,6 +12,10 @@ z3-solver
 zstandard
 tqdm
 natsort
+matplotlib
+
+pandas-stubs
+scikit-learn-stubs
 
 black
 isort

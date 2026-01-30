@@ -18,12 +18,7 @@ DATA_DIR = Path(__file__).parents[3] / "data"
 
 
 class SMTDataset(Dataset):
-    def __init__(
-        self: Self,
-        benchmark: str,
-        split_name: RunMode,
-        split: dict[RunMode, float] | None = None,
-    ) -> None:
+    def __init__(self: Self, benchmark: str) -> None:
         """
         Args:
             benchmark (str): A benchmark in the format of "LOGIC/benchmark_name"
@@ -42,23 +37,6 @@ class SMTDataset(Dataset):
         self.benchmark_dir = self.find_benchmark_dir(self.logic, self.benchmark_name)
 
         self.benchmark_files = natsorted(self.benchmark_dir.rglob("*.smt2"))
-
-        # Information about what idxs belong to which split, so we can instantiate diff objects during training and testing
-        split_info_file = self.benchmark_dir / "split.json"
-
-        if split_info_file.exists():
-            self.split_info = json.load(open(split_info_file, "rt"))
-        else:
-            # If there is no split file already, we create a split and write it to disk
-            assert split is not None
-            self.split_info = self.create_benchmark_split(split)
-            json.dump(self.split_info, open(split_info_file, "wt"))
-
-        self.split_name = split_name
-        self.idxs = self.split_info[self.split_name]
-
-        # Maps from an id (which is the index in the entire benchmark dir to the index in the dataset)
-        self.id_to_idx = {id: idx for idx, id in enumerate(self.idxs)}
 
     def download_logic_benchmark(self: Self, logic: str) -> None:
         """
@@ -107,26 +85,6 @@ class SMTDataset(Dataset):
         zst_destination.unlink()
         tar_desination.unlink()
 
-    def create_benchmark_split(
-        self: Self,
-        split: dict[RunMode, float],
-    ) -> dict[RunMode, list[int]]:
-        idxs = T.randperm(len(self.benchmark_files))
-
-        split_infos = {}
-
-        prev = 0.0
-
-        for name, amount in split.items():
-            start_idx = int(prev * len(self.benchmark_files))
-            end_idx = int((prev + amount) * len(self.benchmark_files))
-
-            split_infos[name] = idxs[start_idx:end_idx].tolist()
-
-            prev += amount
-
-        return split_infos
-
     def find_benchmark_dir(self: Self, logic: str, benchmark_name: str) -> Path:
         return next(
             file
@@ -135,7 +93,7 @@ class SMTDataset(Dataset):
         )
 
     def __len__(self: Self) -> int:
-        return len(self.idxs)
+        return len(self.benchmark_files)
 
     def __getitem__(self: Self, idx: int) -> Path:
-        return self.benchmark_files[self.idxs[idx]]
+        return self.benchmark_files[idx]
