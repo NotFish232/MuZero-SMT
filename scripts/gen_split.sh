@@ -13,4 +13,4 @@
 
 source venv/bin/activate
 
-python -u generate_split.py "$@"
+python -u gen_split.py "$@"

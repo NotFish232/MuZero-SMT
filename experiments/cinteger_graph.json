@@ -57,12 +57,7 @@
       "max_num_nodes": 1024
     },
     "solving_timeout": 60,
-    "max_num_tactics": 10,
-    "split": {
-      "train": 0.1,
-      "eval": 0.1,
-      "test": 0.8
-    }
+    "max_num_tactics": 10
   },
   "observation_size": 384,
   "action_space": [8, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
@@ -85,7 +80,13 @@
     "fc_value_layers": [16],
     "fc_policy_layers": [16, 16]
   },
+
   "stacked_observations": 0,
+  "split_ratios": {
+    "train": 0.1,
+    "eval": 0.1,
+    "test": 0.8
+  },
   "training_steps": 100000,
   "batch_size": 32,
   "checkpoint_interval": 500,

@@ -8,7 +8,6 @@ from torch.utils.data import Dataset
 from tqdm import tqdm  # type: ignore
 from typing_extensions import Self
 
-
 SMT_LIB_RELEASE = "https://zenodo.org/records/16740866"
 
 DATA_DIR = Path(__file__).parents[3] / "data"

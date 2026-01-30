@@ -7,7 +7,6 @@ from time import perf_counter
 import pandas as pd
 import ray
 import z3  # type: ignore
-from matplotlib import pyplot as plt
 from ray.actor import ActorProxy
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm  # type: ignore
@@ -136,17 +135,6 @@ def main() -> None:
 
     with open(f"{split_dir}/{config.experiment_name}.json", "w+") as f:
         json.dump(stratified_split, f)
-
-    plt.hist(
-        [train_df["time"], test_df["time"], eval_df["time"]],
-        bins=50,
-        stacked=True,
-        density=True,
-        alpha=0.7,
-        label=["train", "test", "eval"],
-    )
-
-    plt.savefig(f"{split_dir}/{config.experiment_name}.png")
 
 
 if __name__ == "__main__":

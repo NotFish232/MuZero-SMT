@@ -24,7 +24,7 @@ from mu_zero_smt.replay_buffer import ReplayBuffer
 from mu_zero_smt.self_play import GameHistory, SelfPlay
 from mu_zero_smt.shared_storage import SharedStorage
 from mu_zero_smt.trainer import Trainer
-from mu_zero_smt.utils import MuZeroConfig, dict_to_cpu, load_config
+from mu_zero_smt.utils import MuZeroConfig, dict_to_cpu, load_config, load_dataset_split
 
 
 class MuZero:
@@ -45,8 +45,10 @@ class MuZero:
         self.Environment = Environment
         self.config = config
 
+        self.dataset_split = load_dataset_split(self.config)
+
         # Preload the data if its being downloaded so it doesn't happen in each actor
-        self.Environment(mode="train", **self.config.env_config)
+        self.Environment(**self.config.env_config)
 
         # Fix random generator seed
         np.random.seed(self.config.seed)
@@ -138,11 +140,12 @@ class MuZero:
             ray.remote(SelfPlay)
             .options(name=f"self_play_worker_{i + 1}", num_cpus=1)
             .remote(
+                self.config,
                 self.checkpoint,
                 self.Environment,
+                self.dataset_split["train"],
                 "train",
                 False,
-                self.config,
                 i,
                 self.config.num_self_play_workers,
             )
@@ -153,11 +156,12 @@ class MuZero:
             ray.remote(SelfPlay)
             .options(name=f"eval_worker_{i + 1}", num_cpus=1)
             .remote(
+                self.config,
                 self.checkpoint,
                 self.Environment,
+                self.dataset_split["eval"],
                 "eval",
                 True,
-                self.config,
                 i,
                 self.config.num_eval_workers,
             )

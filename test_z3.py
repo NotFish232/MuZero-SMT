@@ -11,24 +11,32 @@ from tqdm import tqdm  # type: ignore
 
 from mu_zero_smt.environments.smt.dataset import SMTDataset
 from mu_zero_smt.shared_storage import SharedStorage
-from mu_zero_smt.utils import RunMode, load_config
+from mu_zero_smt.utils import RunMode, load_config, load_dataset_split
 
 
 @ray.remote
 def eval_z3_worker(
     benchmark: str,
-    batch_split: dict[RunMode, tuple[int, int]],
+    dataset_split: dict[RunMode, list[int]],
     solving_timeout: float,
     shared_storage: ActorProxy[SharedStorage],
+    worker_id: int,
+    num_workers: int,
 ) -> None:
-    for split_name, (start, end) in batch_split.items():
-        dataset = SMTDataset(benchmark, split_name)
+    for split_name, episode_ids in dataset_split.items():
+        dataset = SMTDataset(benchmark)
 
-        for idx in range(start, end):
+        batch_size = math.ceil(len(episode_ids) / num_workers)
+        batch_start = worker_id * batch_size
+        batch_end = min(batch_start + batch_size, len(episode_ids))
+
+        for idx in range(batch_start, batch_end):
+            episode_id = episode_ids[idx]
+
             solver = z3.Solver()
 
             solver.set("timeout", 1000 * solving_timeout)
-            solver.add(z3.parse_smt2_file(str(dataset[idx])))
+            solver.add(z3.parse_smt2_file(str(dataset[episode_id])))
 
             start_time = perf_counter()
 
@@ -39,8 +47,8 @@ def eval_z3_worker(
             shared_storage.update_info.remote(
                 split_name,
                 {
-                    "id": dataset.idxs[idx],
-                    "name": dataset[idx].stem,
+                    "id": episode_id,
+                    "name": dataset[episode_id].stem,
                     "time": end_time - start_time,
                     "result": str(res),
                     "successful": res in (z3.sat, z3.unsat),
@@ -55,45 +63,33 @@ def main() -> None:
     experiment_dir.mkdir(exist_ok=True, parents=True)
 
     benchmark = config.env_config["benchmark"]
-    split = config.env_config["split"]
+    dataset_split = load_dataset_split(config)
     solving_timeout = config.env_config["solving_timeout"]
 
-    batch_splits = []
-
-    for worker_id in range(config.num_test_workers):
-        worker_split = {}
-
-        for split_name in split.keys():
-            dataset = SMTDataset(benchmark, split_name)
-
-            batch_size = math.ceil(len(dataset) / config.num_test_workers)
-
-            batch_start = worker_id * batch_size
-            batch_end = min(batch_start + batch_size, len(dataset))
-
-            worker_split[split_name] = (batch_start, batch_end)
-
-        batch_splits.append(worker_split)
-
-    total = len(SMTDataset(benchmark, "train", split).benchmark_files)
+    total = len(SMTDataset(benchmark))
 
     ray.init(num_cpus=config.num_test_workers)
 
     shared_storage = (
         ray.remote(SharedStorage)
         .options(name="shared_storage_worker", num_cpus=0)
-        .remote({split_name: [] for split_name in split.keys()})
+        .remote({split_name: [] for split_name in dataset_split.keys()})
     )
 
-    for batch_split in batch_splits:
+    for worker_id in range(config.num_test_workers):
         eval_z3_worker.options(name="eval_z3_worker", num_cpus=1).remote(
-            benchmark, batch_split, solving_timeout, shared_storage
+            benchmark,
+            dataset_split,
+            solving_timeout,
+            shared_storage,
+            worker_id,
+            config.num_test_workers,
         )
 
     p_bar = tqdm(total=total)
 
     while True:
-        info = ray.get(shared_storage.get_info_batch.remote(list(split.keys())))
+        info = ray.get(shared_storage.get_info_batch.remote(list(dataset_split.keys())))
 
         num_successful = sum(x["successful"] for v in info.values() for x in v)
         num_completed = sum(len(v) for v in info.values())
@@ -109,7 +105,7 @@ def main() -> None:
 
         time.sleep(1)
 
-    results = ray.get(shared_storage.get_info_batch.remote(list(split.keys())))
+    results = ray.get(shared_storage.get_info_batch.remote(list(dataset_split.keys())))
 
     ray.shutdown()
 

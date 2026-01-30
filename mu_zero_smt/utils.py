@@ -76,6 +76,8 @@ class MuZeroConfig:
 
     ### Training config
 
+    # Split for train / eval / test
+    split_ratios: dict[RunMode, float]
     # Total number of training steps
     training_steps: int
     # Batch size for training
@@ -114,6 +116,18 @@ def load_config() -> MuZeroConfig:
     config = MuZeroConfig(**json.load(open(path)))
 
     return config
+
+
+def load_dataset_split(config: MuZeroConfig) -> dict[RunMode, list[int]]:
+    split_path = Path(f"splits/{config.experiment_name}.json")
+
+    if not split_path.exists() or not split_path.is_file():
+        raise ValueError(f"No dataset split found (generate with generate_split.py)")
+
+    with open(split_path) as f:
+        dataset_split = json.load(f)
+
+    return dataset_split
 
 
 def collate_observations(observations: list[RawObservation]) -> CollatedObservation:

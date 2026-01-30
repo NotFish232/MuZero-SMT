@@ -31,17 +31,16 @@ class SelfPlay:
 
     def __init__(
         self: Self,
+        config: MuZeroConfig,
         initial_checkpoint: dict[str, Any],
         Environment: Type[BaseEnvironment],
+        episode_ids: list[int],
         mode: RunMode,
         single_run: bool,
-        config: MuZeroConfig,
         worker_id: int,
         num_workers: int,
     ) -> None:
         self.config = config
-        self.worker_id = worker_id
-        self.num_workers = num_workers
 
         # Fix random generator seed
         seed = config.seed + worker_id
@@ -50,10 +49,16 @@ class SelfPlay:
         T.manual_seed(seed)
 
         self.env = Environment(
-            mode, not single_run, seed=seed, **self.config.env_config
+            episode_ids=episode_ids, seed=seed, **self.config.env_config
         )
         self.mode = mode
         self.single_run = single_run
+
+        self.worker_id = worker_id
+        self.num_workers = num_workers
+
+
+        print(initial_checkpoint)
 
         # Initialize the network
         self.model = MuZeroNetwork.from_config(self.config)

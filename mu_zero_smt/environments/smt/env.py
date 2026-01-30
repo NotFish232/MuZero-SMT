@@ -5,7 +5,7 @@ import numpy as np
 import z3  # type: ignore
 from typing_extensions import Any, Self, override
 
-from mu_zero_smt.utils import RawObservation, RunMode
+from mu_zero_smt.utils import RawObservation
 
 from ..base_environment import BaseEnvironment
 from .dataset import SMTDataset
@@ -31,8 +31,7 @@ class SMTEnvironment(BaseEnvironment):
 
     def __init__(
         self: Self,
-        mode: RunMode = "train",
-        shuffle: bool = True,
+        episode_ids: list[int] | None = None,
         seed: int | None = None,
         *,
         benchmark: str,
@@ -41,14 +40,17 @@ class SMTEnvironment(BaseEnvironment):
         tactics: dict[str, dict[str, str]],
         solving_timeout: float,
         max_num_tactics: int,
-        split: dict[RunMode, float],
     ) -> None:
-        self.mode = mode
-        self.shuffle = shuffle
-
         random.seed(seed)
 
         self.benchmark = benchmark
+        self.dataset = SMTDataset(self.benchmark)
+
+        # Which indices are actually active for this environment
+        if episode_ids is not None:
+            self.episode_ids = episode_ids
+        else:
+            self.episode_ids = [*range(len(self.dataset))]
 
         self.tactics = [*tactics.keys()]
         self.tactic_parameters = tactics
@@ -59,14 +61,11 @@ class SMTEnvironment(BaseEnvironment):
         self.solving_timeout = solving_timeout
         self.max_num_tactics = max_num_tactics
 
-        self.dataset = SMTDataset(self.benchmark, self.mode, split)
-
         # Environment data that resets each episode
         self.time_spent = 0.0
         self.tactics_applied: list[tuple[str, dict[str, Any]]] = []
 
-        self.selected_idx = -1
-
+        self.current_episode_id: int
         self.current_goal: z3.Goal
 
     def _get_observation(self: Self) -> RawObservation:
@@ -170,17 +169,15 @@ class SMTEnvironment(BaseEnvironment):
             Initial observation of the game.
         """
 
-        # Run each benchmark sequentially in shuffle mode
         if episode_id is not None:
-            self.selected_idx = self.dataset.id_to_idx[episode_id]
+            self.current_episode_id = episode_id
         else:
-            if self.shuffle:
-                self.selected_idx = random.randint(0, len(self.dataset) - 1)
-            else:
-                self.selected_idx += 1
+            self.current_episode_id = random.choice(self.episode_ids)
 
         self.current_goal = z3.Goal()
-        self.current_goal.add(z3.parse_smt2_file(str(self.dataset[self.selected_idx])))
+        self.current_goal.add(
+            z3.parse_smt2_file(str(self.dataset[self.current_episode_id]))
+        )
 
         self.time_spent = 0.0
         self.tactics_applied = []
@@ -189,7 +186,7 @@ class SMTEnvironment(BaseEnvironment):
 
     @override
     def unique_episodes(self: Self) -> list[int]:
-        return self.dataset.idxs
+        return self.episode_ids
 
     @override
     def episode_stats(self: Self) -> dict[str, Any]:
@@ -205,8 +202,8 @@ class SMTEnvironment(BaseEnvironment):
             result = "MAX_NUM_TACTICS"
 
         return {
-            "id": self.dataset.idxs[self.selected_idx],
-            "name": self.dataset[self.selected_idx].stem,
+            "id": self.current_episode_id,
+            "name": self.dataset[self.current_episode_id].stem,
             "tactic_history": self.tactics_applied,
             "time": self.time_spent,
             "result": result,

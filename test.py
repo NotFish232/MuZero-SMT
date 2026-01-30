@@ -10,11 +10,13 @@ from tqdm import tqdm  # type: ignore
 from mu_zero_smt.environments.smt import SMTEnvironment
 from mu_zero_smt.self_play import SelfPlay
 from mu_zero_smt.shared_storage import SharedStorage
-from mu_zero_smt.utils import RunMode, load_config
+from mu_zero_smt.utils import RunMode, load_config, load_dataset_split
 
 
 def main() -> None:
     config = load_config()
+
+    dataset_split = load_dataset_split(config)
 
     modes: list[RunMode] = ["train", "eval", "test"]
 
@@ -42,28 +44,34 @@ def main() -> None:
     )
 
     # Give one worker to train / eval batch each and then the remaining to test
-    test_workers = [
-        ray.remote(SelfPlay)
-        .options(name=f"test_worker_{i + 1}", num_cpus=1)
-        .remote(
-            checkpoint,
-            SMTEnvironment,
-            "train" if i == 0 else "eval" if i == 1 else "test",
-            True,
-            config,
-            0 if i <= 1 else i - 2,
-            1 if i <= 1 else config.num_test_workers - 2,
+    test_workers = []
+
+    for i in range(config.num_test_workers):
+        mode: RunMode = "train" if i == 0 else "eval" if i == 1 else "test"
+        episode_ids = dataset_split[mode]
+
+        worker_id = 0 if i <= 1 else i - 2
+        num_workers = 1 if i <= 1 else config.num_eval_workers - 2
+
+        test_workers.append(
+            ray.remote(SelfPlay)
+            .options(name=f"test_worker_{i + 1}", num_cpus=1)
+            .remote(
+                config,
+                checkpoint,
+                SMTEnvironment,
+                episode_ids,
+                mode,
+                True,
+                worker_id,
+                num_workers,
+            )
         )
-        for i in range(config.num_test_workers)
-    ]
 
     for test_worker in test_workers:
         test_worker.continuous_self_play.remote(shared_storage_worker, None)
 
-    total_episodes = sum(
-        len(SMTEnvironment(mode, **config.env_config).unique_episodes())
-        for mode in modes
-    )
+    total_episodes = len(SMTEnvironment(**config.env_config).unique_episodes())
 
     p_bar = tqdm(total=total_episodes)
 

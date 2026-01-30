@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 from typing_extensions import Any, Self
 
-from mu_zero_smt.utils import RawObservation, RunMode
+from mu_zero_smt.utils import RawObservation
 
 
 class BaseEnvironment(ABC):
@@ -14,8 +14,7 @@ class BaseEnvironment(ABC):
     @abstractmethod
     def __init__(
         self: Self,
-        mode: RunMode,
-        shuffle: bool = True,
+        episode_ids: list[int] | None = None,
         seed: int | None = None,
     ) -> None:
         pass
