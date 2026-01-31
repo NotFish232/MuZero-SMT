@@ -57,9 +57,6 @@ class SelfPlay:
         self.worker_id = worker_id
         self.num_workers = num_workers
 
-
-        print(initial_checkpoint)
-
         # Initialize the network
         self.model = MuZeroNetwork.from_config(self.config)
         self.model.load_state_dict(initial_checkpoint[f"{self.mode}_weights"])
