@@ -6,7 +6,7 @@ shift
 job_name="$(basename "$file" .py)"
 
 sbatch \
-    --job-name="$job_name" \
+    --job-name="MuZeroSMT_$job_name" \
     --output="%x_%j.out" \
     --error="%x_%j.err" \
     --exclusive \
