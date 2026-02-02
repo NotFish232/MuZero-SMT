@@ -65,10 +65,10 @@ class GraphSMTEmbeddings(SMTEmbeddings):
         self.embedding_size = embedding_size
         self.max_num_nodes = max_num_nodes
 
-        assert len(Z3_OP_TYPES) < self.embedding_size
+        assert len(Z3_OP_TYPES) + 1 < self.embedding_size
 
     @override
-    def embed(self: Self, goal: z3.Goal, _time: float) -> RawObservation:
+    def embed(self: Self, goal: z3.Goal, time: float) -> RawObservation:
         """
         Constructs a graph from a smt formula
 
@@ -79,7 +79,7 @@ class GraphSMTEmbeddings(SMTEmbeddings):
             Data: The embeddings of each node and the edges.
         """
 
-        num_variable_names = self.embedding_size - len(Z3_OP_TYPES)
+        num_variable_names = self.embedding_size - len(Z3_OP_TYPES) - 1
 
         nodes: list[tuple[str | None, int]] = []
         edges: set[tuple[int, int]] = set()
@@ -117,6 +117,8 @@ class GraphSMTEmbeddings(SMTEmbeddings):
             nodes.append((expr_str, op_id))
 
             if parent != -1:
+                # store edges as (parent -> child) and (child -> parent)
+                edges.add((parent, node_idx))
                 edges.add((node_idx, parent))
 
             for child_ref in ref.children():
@@ -151,6 +153,22 @@ class GraphSMTEmbeddings(SMTEmbeddings):
             node_embeddings_tensor = T.stack(node_embeddings)
         else:
             node_embeddings_tensor = T.empty(0, self.embedding_size)
+
+        # Add a dedicated time node so temporal budget is available to the GNN
+        time_node = T.zeros(self.embedding_size)
+        time_node[-1] = float(time)
+
+        if node_embeddings_tensor.shape[0] > 0:
+            node_embeddings_tensor = T.cat(
+                (node_embeddings_tensor, time_node.unsqueeze(0)), dim=0
+            )
+
+            # Connect time node to root to enable message passing
+            time_node_idx = node_embeddings_tensor.shape[0] - 1
+            edges.add((0, time_node_idx))
+            edges.add((time_node_idx, 0))
+        else:
+            node_embeddings_tensor = time_node.unsqueeze(0)
 
         # Transpose the edges and make them contiguous
         if len(edges) > 0:
