@@ -106,6 +106,8 @@ def main() -> None:
         )
     )
 
+    results = {k.removesuffix("_results"): v for k, v in results.items()}
+
     ray.shutdown()
 
     with open(f"{checkpoint_dir}/test_results.json", "w+") as f:

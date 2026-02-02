@@ -56,7 +56,9 @@ def main() -> None:
     config = load_config()
 
     benchmark = config.env_config["benchmark"]
-    solving_timeout = config.env_config["solving_timeout"]
+
+    # Longer timeout to better analyze difficulty
+    solving_timeout = 5 * config.env_config["solving_timeout"]
 
     total = len(SMTDataset(benchmark))
 
@@ -121,14 +123,17 @@ def main() -> None:
         stratify=temp_df["difficulty_bin"],
     )
 
-    train_data = train_df.drop(columns=["difficulty_bin"]).to_dict(orient="records")
-    test_data = test_df.drop(columns=["difficulty_bin"]).to_dict(orient="records")
-    eval_data = eval_df.drop(columns=["difficulty_bin"]).to_dict(orient="records")
+    data = df.to_dict(orient="records")
+
+    train_data = train_df.to_dict(orient="records")
+    test_data = test_df.to_dict(orient="records")
+    eval_data = eval_df.to_dict(orient="records")
 
     stratified_split = {
         "train": [x["id"] for x in train_data],
         "test": [x["id"] for x in test_data],
         "eval": [x["id"] for x in eval_data],
+        "info": {x["id"]: x["time"] for x in data},
     }
 
     split_dir = Path(__file__).parent / "splits"
