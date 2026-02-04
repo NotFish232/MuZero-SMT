@@ -1,8 +1,8 @@
 {
-  "experiment_name": "cinteger",
+  "experiment_name": "sage2",
   "seed": 0,
   "env_config": {
-    "benchmark": "QF_NIA/CInteger",
+    "benchmark": "QF_BV/Sage2",
     "tactics": {
       "simplify": {
         "timeout": "special",
@@ -14,40 +14,31 @@
         "local_ctx": "bool",
         "hoist_mul": "bool"
       },
-      "smt": {
-        "timeout": "special"
-      },
-      "bit-blast": {
+      "ctx-simplify": {
         "timeout": "special"
       },
       "propagate-values": {
         "timeout": "special"
       },
-      "ctx-simplify": {
+      "propagate-bv-bounds": {
         "timeout": "special"
       },
-      "elim-uncnstr": {
+      "reduce-bv-size": {
         "timeout": "special"
       },
-      "solve-eqs": {
+      "bv-slice": {
         "timeout": "special"
       },
-      "qfnia": {
+      "elim-term-ite": {
         "timeout": "special"
       },
-      "lia2card": {
+      "bit-blast": {
         "timeout": "special"
       },
       "max-bv-sharing": {
         "timeout": "special"
       },
-      "nla2bv": {
-        "timeout": "special"
-      },
-      "qfnra-nlsat": {
-        "timeout": "special"
-      },
-      "cofactor-term-ite": {
+      "qfbv": {
         "timeout": "special"
       }
     },
@@ -60,7 +51,7 @@
     "max_num_tactics": 10
   },
   "observation_size": 384,
-  "action_space": [8, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+  "action_space": [8, 1, 1, 1, 1, 1, 1, 1, 1, 1],
   "num_self_play_workers": 1,
   "num_eval_workers": 6,
   "num_test_workers": 8,
@@ -80,7 +71,6 @@
     "fc_value_layers": [16],
     "fc_policy_layers": [16, 16]
   },
-
   "stacked_observations": 0,
   "split_ratios": {
     "train": 0.1,

@@ -142,12 +142,16 @@ class GraphSMTEmbeddings(SMTEmbeddings):
 
             var_embedding = T.zeros(num_variable_names)
 
+            time_embedding = T.zeros(1)
+
             if name is not None:
                 var_id = var_to_id[name]
                 var_embedding = F.one_hot(T.tensor(var_id), num_variable_names)
 
-            # Full embedding is just one-hot encoded operator + one-hot encoded variable name
-            node_embeddings.append(T.concat((op_embedding, var_embedding)))
+            # Full embedding is just one-hot encoded operator + one-hot encoded variable name + space for time
+            node_embeddings.append(
+                T.concat((op_embedding, var_embedding, time_embedding))
+            )
 
         if len(node_embeddings) > 0:
             node_embeddings_tensor = T.stack(node_embeddings)

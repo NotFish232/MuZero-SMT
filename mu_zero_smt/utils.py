@@ -122,7 +122,7 @@ def load_dataset_split(config: MuZeroConfig) -> dict[RunMode, list[int]]:
     split_path = Path(f"splits/{config.experiment_name}.json")
 
     if not split_path.exists() or not split_path.is_file():
-        raise ValueError(f"No dataset split found (generate with generate_split.py)")
+        raise ValueError(f"No dataset split found (generate with gen_split.py)")
 
     with open(split_path) as f:
         dataset_split = json.load(f)
