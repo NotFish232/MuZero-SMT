@@ -104,7 +104,7 @@ def main() -> None:
 
     df = pd.DataFrame(results)
 
-    split = config.env_config["split"]
+    split_ratios = config.split_ratios
 
     df["difficulty_bin"] = pd.qcut(
         df["time"],
@@ -113,13 +113,13 @@ def main() -> None:
 
     train_df, temp_df = train_test_split(
         df,
-        test_size=split["test"] + split["eval"],
+        test_size=split_ratios["test"] + split_ratios["eval"],
         stratify=df["difficulty_bin"],
     )
 
     test_df, eval_df = train_test_split(
         temp_df,
-        test_size=split["eval"] / (split["test"] + split["eval"]),
+        test_size=split_ratios["eval"] / (split_ratios["test"] + split_ratios["eval"]),
         stratify=temp_df["difficulty_bin"],
     )
 
