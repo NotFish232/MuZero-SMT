@@ -31,10 +31,11 @@ def eval_z3_worker(
     batch_end = min(batch_start + batch_size, len(dataset))
 
     for idx in range(batch_start, batch_end):
-        solver = z3.Solver()
+        ctx = z3.Context()
+        solver = z3.Solver(ctx=ctx)
 
         solver.set("timeout", 1000 * solving_timeout)
-        solver.add(z3.parse_smt2_file(str(dataset[idx])))
+        solver.add(z3.parse_smt2_file(str(dataset[idx]), ctx=ctx))
 
         start_time = perf_counter()
 
@@ -50,6 +51,8 @@ def eval_z3_worker(
                 "successful": res in (z3.sat, z3.unsat),
             },
         )
+
+        del solver, ctx
 
 
 def main() -> None:
