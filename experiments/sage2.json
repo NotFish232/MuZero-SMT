@@ -8,14 +8,8 @@
         "timeout": "special",
         "elim_and": "bool",
         "som": "bool",
-        "blast_distinct": "bool",
-        "flat": "bool",
-        "hi_div0": "bool",
-        "local_ctx": "bool",
-        "hoist_mul": "bool"
-      },
-      "ctx-simplify": {
-        "timeout": "special"
+        "pull_cheap_ite": "bool",
+        "push_ite_bv": "bool"
       },
       "propagate-values": {
         "timeout": "special"
@@ -24,7 +18,8 @@
         "timeout": "special"
       },
       "reduce-bv-size": {
-        "timeout": "special"
+        "timeout": "special",
+        "max_bv_size": "int"
       },
       "bv-slice": {
         "timeout": "special"
@@ -32,10 +27,18 @@
       "elim-term-ite": {
         "timeout": "special"
       },
+      "max-bv-sharing": {
+        "timeout": "special",
+        "max_shares": "int"
+      },
+      "ackermannize_bv": {
+        "timeout": "special",
+        "eager": "bool"
+      },
       "bit-blast": {
         "timeout": "special"
       },
-      "max-bv-sharing": {
+      "sat": {
         "timeout": "special"
       },
       "qfbv": {
@@ -51,7 +54,7 @@
     "max_num_tactics": 10
   },
   "observation_size": 384,
-  "action_space": [8, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+  "action_space": [5, 1, 1, 2, 1, 1, 2, 2, 1, 1, 1],
   "num_self_play_workers": 1,
   "num_eval_workers": 6,
   "num_test_workers": 8,
@@ -73,9 +76,9 @@
   },
   "stacked_observations": 0,
   "split_ratios": {
-    "train": 0.1,
-    "eval": 0.1,
-    "test": 0.8
+    "train": 0.05,
+    "eval": 0.05,
+    "test": 0.9
   },
   "training_steps": 25000,
   "batch_size": 32,
