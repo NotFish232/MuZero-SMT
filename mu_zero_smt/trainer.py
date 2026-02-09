@@ -279,7 +279,7 @@ class Trainer:
             value_loss * self.config.value_loss_weight
             + reward_loss
             + policy_loss
-            + param_loss
+            + param_loss * 0.25
         )
 
         # Correct PER bias by using importance-sampling (IS) weights
