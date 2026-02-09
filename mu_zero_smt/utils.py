@@ -118,7 +118,9 @@ def load_config() -> MuZeroConfig:
     return config
 
 
-def load_dataset_split(config: MuZeroConfig) -> dict[RunMode, list[int]]:
+def load_dataset_split(
+    config: MuZeroConfig, remove_info: bool = True
+) -> dict[str, list[int]]:
     split_path = Path(f"splits/{config.experiment_name}.json")
 
     if not split_path.exists() or not split_path.is_file():
@@ -126,6 +128,9 @@ def load_dataset_split(config: MuZeroConfig) -> dict[RunMode, list[int]]:
 
     with open(split_path) as f:
         dataset_split = json.load(f)
+    
+    if remove_info:
+        del dataset_split["info"]
 
     return dataset_split
 
