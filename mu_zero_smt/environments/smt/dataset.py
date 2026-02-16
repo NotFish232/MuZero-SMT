@@ -18,10 +18,14 @@ class SMTDataset(Dataset):
         """
         Args:
             benchmark (str): A benchmark in the format of "LOGIC/benchmark_name"
-            like QF_NIA/CInteger
+            like QF_NIA/CInteger. The benchmark name is optional otherwise it runs on the whole logic
         """
 
-        self.logic, self.benchmark_name = benchmark.split("/")
+        # benchmark name is option
+        parts = benchmark.split("/")
+
+        self.logic = parts[0]
+        self.benchmark_name = parts[1] if len(parts) > 1 else None
 
         DATA_DIR.mkdir(exist_ok=True)
 
@@ -79,7 +83,10 @@ class SMTDataset(Dataset):
         zst_destination.unlink()
         tar_desination.unlink()
 
-    def find_benchmark_dir(self: Self, logic: str, benchmark_name: str) -> Path:
+    def find_benchmark_dir(self: Self, logic: str, benchmark_name: str | None) -> Path:
+        if benchmark_name is None:
+            return DATA_DIR / "non-incremental" / logic
+
         return next(
             file
             for file in (DATA_DIR / "non-incremental" / logic).rglob("*")
