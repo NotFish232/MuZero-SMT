@@ -74,20 +74,24 @@
   "support_size": 3,
   "model_type": "graph",
   "model_config": {
-    "encoded_state_size": 16,
-    "fc_dynamics_layers": [16, 16],
-    "fc_reward_layers": [16],
-    "fc_value_layers": [16],
-    "fc_policy_layers": [16, 16]
+    "encoded_state_size": 128,
+    "representation_hidden_channels": 128,
+    "representation_num_layers": 6,
+    "dynamics_layers": [128, 128, 128],
+    "dynamics_heads_layers": [128, 128],
+    "policy_layers": [128, 128],
+    "policy_discrete_head_layers": [128, 64],
+    "policy_continuous_heads_layers": [128],
+    "value_layers": [128, 64],
+    "reward_layers": [128]
   },
-
   "stacked_observations": 0,
   "split_ratios": {
     "train": 0.1,
     "eval": 0.05,
     "test": 0.85
   },
-  "training_steps": 25000,
+  "training_steps": 20000,
   "batch_size": 32,
   "checkpoint_interval": 500,
   "value_loss_weight": 1,
