@@ -1,0 +1,115 @@
+{
+  "experiment_name": "qf_nia_improved",
+  "seed": 0,
+  "env_config": {
+    "benchmark": "QF_NIA",
+    "tactics": {
+      "simplify": {
+        "timeout": "special",
+        "arith_lhs": "bool",
+        "som": "bool",
+        "flat": "bool",
+        "local_ctx": "bool",
+        "hoist_mul": "bool",
+        "elim_ite": "bool",
+        "gcd_rounding": "bool"
+      },
+      "propagate-values": {
+        "timeout": "special"
+      },
+      "ctx-simplify": {
+        "timeout": "special",
+        "propagate_eq": "bool"
+      },
+      "elim-uncnstr": {
+        "timeout": "special"
+      },
+      "solve-eqs": {
+        "timeout": "special"
+      },
+      "purify-arith": {
+        "timeout": "special"
+      },
+      "lia2pb": {
+        "timeout": "special"
+      },
+      "nla2bv": {
+        "timeout": "special",
+        "nla2bv_bv_size": [3, 8],
+        "nla2bv_max_bv_size": [8, 12]
+      },
+      "qfnra-nlsat": {
+        "timeout": "special",
+        "inline_vars": "bool",
+        "simplify_conflicts": "bool",
+        "reorder": "bool",
+        "randomize": "bool"
+      },
+      "nlsat": {
+        "timeout": "special",
+        "inline_vars": "bool",
+        "simplify_conflicts": "bool",
+        "reorder": "bool",
+        "randomize": "bool",
+        "shuffle_vars": "bool"
+      },
+      "smt": {
+        "timeout": "special"
+      }
+    },
+    "embedding_type": "graph",
+    "embedding_config": {
+      "embedding_size": 512,
+      "max_num_nodes": 2048
+    },
+    "solving_timeout": 60,
+    "max_num_tactics": 12
+  },
+  "observation_size": 512,
+  "action_space": [9, 3, 1, 1, 1, 1, 1, 4, 6, 1],
+  "num_self_play_workers": 4,
+  "num_eval_workers": 4,
+  "num_test_workers": 8,
+  "num_simulations": 800,
+  "num_continuous_samples": 4,
+  "discount": 0.997,
+  "root_dirichlet_alpha": 0.3,
+  "root_exploration_fraction": 0.25,
+  "pb_c_base": 10000,
+  "pb_c_init": 2.5,
+  "support_size": 10,
+  "model_type": "graph",
+  "model_config": {
+    "encoded_state_size": 192,
+    "representation_hidden_channels": 192,
+    "representation_num_layers": 8,
+    "dynamics_layers": [256, 192, 128],
+    "dynamics_heads_layers": [192, 128],
+    "policy_layers": [192, 128],
+    "policy_discrete_head_layers": [192, 128],
+    "policy_continuous_heads_layers": [128, 64],
+    "value_layers": [192, 128],
+    "reward_layers": [128, 64]
+  },
+  "stacked_observations": 0,
+  "split_ratios": {
+    "train": 0.15,
+    "eval": 0.05,
+    "test": 0.8
+  },
+  "training_steps": 50000,
+  "batch_size": 64,
+  "checkpoint_interval": 500,
+  "value_loss_weight": 1,
+  "weight_decay": 0.0001,
+  "lr_init": 0.001,
+  "lr_decay_rate": 0.995,
+  "lr_decay_steps": 500,
+  "replay_buffer_size": 500,
+  "num_unroll_steps": 5,
+  "td_steps": 5,
+  "priority_alpha": 0.6,
+  "training_delay": 10,
+  "temperature_start": 1.5,
+  "temperature_end": 0.1
+}

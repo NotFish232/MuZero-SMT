@@ -12,14 +12,19 @@ from .dataset import SMTDataset
 from .embeddings import SMTEmbeddings
 
 
-def map_raw_val(raw_val: float, typ: str) -> Any:
+def map_raw_val(raw_val: float, typ: Any) -> Any:
     """
     Maps a raw value with a type to the actual value fed into the network
     For instance if the typ is bool, true if the raw_val >= 0.5 else false
     """
 
+    # Booleans are mapped 0->1
     if typ == "bool":
         return round(raw_val) == 1
+
+    # Map uniformly in range of integers
+    if type(typ) == list and len(typ) == 2 and type(typ[0]) == type(typ[1]) == int:
+        return round(raw_val * (typ[1] - typ[0]) + typ[1])
 
     raise NotImplementedError(f'Unknown value type: "{typ}"')
 
