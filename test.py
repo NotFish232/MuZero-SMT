@@ -71,9 +71,9 @@ def main() -> None:
     for test_worker in test_workers:
         test_worker.continuous_self_play.remote(shared_storage_worker, None)
 
-    total_episodes = len(SMTEnvironment(**config.env_config).unique_episodes())
+    total = sum(len(lst) for lst in dataset_split.values())
 
-    p_bar = tqdm(total=total_episodes)
+    p_bar = tqdm(total=total)
 
     while True:
         keys = [f"{mode}_results" for mode in modes] + [

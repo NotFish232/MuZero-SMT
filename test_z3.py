@@ -66,7 +66,7 @@ def main() -> None:
     dataset_split = load_dataset_split(config)
     solving_timeout = config.env_config["solving_timeout"]
 
-    total = len(SMTDataset(benchmark))
+    total = sum(len(lst) for lst in dataset_split.values())
 
     ray.init(num_cpus=config.num_test_workers)
 
