@@ -1,4 +1,5 @@
 import copy
+import math
 import time
 
 import numpy as np
@@ -43,6 +44,12 @@ class Trainer:
         self.model.to(T.device("cpu"))
         self.model.train()
 
+        # EMA model: a slowly-moving copy of the weights used by self-play workers
+        self.ema_model = MuZeroNetwork.from_config(self.config)
+        self.ema_model.load_state_dict(self.model.state_dict())
+        self.ema_model.to(T.device("cpu"))
+        self.ema_model.eval()
+
         self.training_step = initial_checkpoint["training_step"]
 
         # Initialize the optimizer
@@ -81,6 +88,8 @@ class Trainer:
                 reward_loss,
                 policy_loss,
                 param_loss,
+                grad_norm,
+                policy_entropy,
             ) = self.update_weights(batch)
 
             # Save new priorities in the replay buffer (See https://arxiv.org/abs/1803.00933)
@@ -92,8 +101,9 @@ class Trainer:
             if self.training_step % self.config.checkpoint_interval == 0:
                 shared_storage.set_info_batch.remote(
                     {
+                        # Publish EMA weights so self-play workers use stable, smoothed weights
                         "train_weights": copy.deepcopy(
-                            dict_to_cpu(self.model.state_dict())
+                            dict_to_cpu(self.ema_model.state_dict())
                         ),
                         "optimizer_state": copy.deepcopy(
                             dict_to_cpu(self.optimizer.state_dict())
@@ -110,6 +120,8 @@ class Trainer:
                     "reward_loss": reward_loss,
                     "policy_loss": policy_loss,
                     "param_loss": param_loss,
+                    "grad_norm": grad_norm,
+                    "policy_entropy": policy_entropy,
                 }
             )
 
@@ -244,16 +256,16 @@ class Trainer:
 
             # Scale gradient by the number of unroll steps (See paper appendix Training)
             current_value_loss.register_hook(
-                lambda grad: grad / gradient_scale_batch[:, i]
+                lambda grad, i=i: grad / gradient_scale_batch[:, i]
             )
             current_reward_loss.register_hook(
-                lambda grad: grad / gradient_scale_batch[:, i]
+                lambda grad, i=i: grad / gradient_scale_batch[:, i]
             )
             current_policy_loss.register_hook(
-                lambda grad: grad / gradient_scale_batch[:, i]
+                lambda grad, i=i: grad / gradient_scale_batch[:, i]
             )
             current_param_loss.register_hook(
-                lambda grad: grad / gradient_scale_batch[:, i]
+                lambda grad, i=i: grad / gradient_scale_batch[:, i]
             )
 
             value_loss += current_value_loss
@@ -279,7 +291,7 @@ class Trainer:
             value_loss * self.config.value_loss_weight
             + reward_loss
             + policy_loss
-            + param_loss * 0.25
+            + param_loss * self.config.param_loss_weight
         )
 
         # Correct PER bias by using importance-sampling (IS) weights
@@ -290,7 +302,32 @@ class Trainer:
         # Optimize
         self.optimizer.zero_grad()
         loss.backward()
+        # Clip gradients and record the pre-clip norm for monitoring
+        grad_norm = T.nn.utils.clip_grad_norm_(
+            self.model.parameters(), max_norm=self.config.max_grad_norm
+        )
         self.optimizer.step()
+
+        # Update EMA weights: slowly tracks the raw model for stable self-play data generation
+        with T.no_grad():
+            for ema_p, p in zip(self.ema_model.parameters(), self.model.parameters()):
+                ema_p.data.mul_(self.config.ema_decay).add_(
+                    p.data, alpha=1 - self.config.ema_decay
+                )
+            for ema_b, b in zip(self.ema_model.buffers(), self.model.buffers()):
+                ema_b.copy_(b)
+
+        # Policy entropy: high = exploring, low = collapsed/overconfident
+        with T.no_grad():
+
+            *_, policy_logits, _ = predictions[0]
+            policy_log_probs = T.log_softmax(policy_logits, dim=1)
+            policy_probs = T.softmax(policy_logits, dim=1)
+
+            policy_entropy = -(policy_probs * policy_log_probs).sum(1).mean()
+
+            # Divide by max entropy (log N) so value ranges [0, 1]
+            normalized_policy_entropy = policy_entropy / math.log(len(self.config.action_space))
 
         return (
             priorities,
@@ -300,6 +337,8 @@ class Trainer:
             reward_loss.mean().item(),
             policy_loss.mean().item(),
             param_loss.mean().item(),
+            grad_norm.item(),
+            normalized_policy_entropy.item(),
         )
 
     def update_lr(self):

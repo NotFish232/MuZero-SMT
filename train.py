@@ -1,7 +1,9 @@
 import copy
+import json
 import os
 import pickle
 import time
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
@@ -77,6 +79,8 @@ class MuZero:
             "num_played_games": 0,
             "num_played_steps": 0,
             "lr": 0,
+            "grad_norm": 0,
+            "policy_entropy": 0,
             # Loss
             "total_loss": 0,
             "value_loss": 0,
@@ -115,6 +119,9 @@ class MuZero:
         )
 
         Path(self.results_path).mkdir(exist_ok=True, parents=True)
+
+        with open(self.results_path / "config.json", "w+") as f:
+            json.dump(asdict(self.config), f, indent=4)
 
         # Initialize workers
         self.shared_storage_worker = (
@@ -213,6 +220,8 @@ class MuZero:
             "num_played_games",
             "num_played_steps",
             "lr",
+            "grad_norm",
+            "policy_entropy",
             # Loss Metrics
             "total_loss",
             "value_loss",
@@ -264,28 +273,33 @@ class MuZero:
                     )
 
                 writer.add_scalar(
-                    "2.Workers/1.Self_played_games",
+                    "2.Stats/1.Self_played_games",
                     info["num_played_games"],
                     counter,
                 )
                 writer.add_scalar(
-                    "2.Workers/2.Eval_played_games",
+                    "2.Stats/2.Eval_played_games",
                     sum(len(e) for e in info["eval_results_history"])
                     + len(info["eval_results"]),
                     counter,
                 )
                 writer.add_scalar(
-                    "2.Workers/3.Training_steps", info["training_step"], counter
+                    "2.Stats/3.Training_steps", info["training_step"], counter
                 )
                 writer.add_scalar(
-                    "2.Workers/4.Self_played_steps", info["num_played_steps"], counter
+                    "2.Stats/4.Self_played_steps", info["num_played_steps"], counter
                 )
                 writer.add_scalar(
-                    "2.Workers/5.Training_steps_per_self_played_step_ratio",
+                    "2.Stats/5.Training_steps_per_self_played_step_ratio",
                     info["training_step"] / max(1, info["num_played_steps"]),
                     counter,
                 )
-                writer.add_scalar("2.Workers/6.Learning_rate", info["lr"], counter)
+                writer.add_scalar("2.Stats/6.Learning_rate", info["lr"], counter)
+                writer.add_scalar("2.Stats/1.Grad_norm", info["grad_norm"], counter)
+                writer.add_scalar(
+                    "2.Stats/2.Policy_entropy", info["policy_entropy"], counter
+                )
+
                 writer.add_scalar(
                     "3.Loss/1.Total_weighted_loss", info["total_loss"], counter
                 )

@@ -86,8 +86,11 @@ class MuZeroConfig:
     checkpoint_interval: int
     # Scale the value loss to avoid overfitting of the value function, paper recommends 0.25 (See paper appendix Reanalyze)
     value_loss_weight: float
+    param_loss_weight: float
     # L2 weights regularization
     weight_decay: float
+    # Grad clipping
+    max_grad_norm: float
     # Exponential learning rate schedule
     lr_init: float
     lr_decay_rate: float
@@ -102,6 +105,8 @@ class MuZeroConfig:
     priority_alpha: float
     # Number of seconds to weight after each training step
     training_delay: float
+    # Decay rate for exponential moving average of model weights used by self-play workers
+    ema_decay: float
 
 
 def load_config() -> MuZeroConfig:
@@ -128,7 +133,7 @@ def load_dataset_split(
 
     with open(split_path) as f:
         dataset_split = json.load(f)
-    
+
     if remove_info and "info" in dataset_split:
         del dataset_split["info"]
 

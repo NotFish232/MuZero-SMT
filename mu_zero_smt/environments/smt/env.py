@@ -24,7 +24,7 @@ def map_raw_val(raw_val: float, typ: Any) -> Any:
 
     # Map uniformly in range of integers
     if type(typ) == list and len(typ) == 2 and type(typ[0]) == type(typ[1]) == int:
-        return round(raw_val * (typ[1] - typ[0]) + typ[1])
+        return round(raw_val * (typ[1] - typ[0]) + typ[0])
 
     raise NotImplementedError(f'Unknown value type: "{typ}"')
 
