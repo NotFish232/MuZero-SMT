@@ -327,7 +327,9 @@ class Trainer:
             policy_entropy = -(policy_probs * policy_log_probs).sum(1).mean()
 
             # Divide by max entropy (log N) so value ranges [0, 1]
-            normalized_policy_entropy = policy_entropy / math.log(len(self.config.action_space))
+            normalized_policy_entropy = policy_entropy / math.log(
+                len(self.config.action_space)
+            )
 
         return (
             priorities,
