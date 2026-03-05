@@ -4,11 +4,11 @@ from collections import deque
 import numpy as np
 import torch as T
 import z3  # type: ignore
-from torch.nn import functional as F
 from torch_geometric.data import Data  # type: ignore
 from typing_extensions import Any, Self, override
 
 from mu_zero_smt.utils import RawObservation
+import hashlib
 
 
 class SMTEmbeddings(ABC):
@@ -54,18 +54,56 @@ class ProbeSMTEmbeddings(SMTEmbeddings):
         return values.reshape(1, 1, -1)
 
 
-Z3_OP_TYPES = sorted(v for k, v in z3.__dict__.items() if k.startswith("Z3_OP"))
-
-# Fast lookup from ast type and op type to id
-Z3_OP_TO_ID = dict(zip(Z3_OP_TYPES, range(len(Z3_OP_TYPES))))
-
-
 class GraphSMTEmbeddings(SMTEmbeddings):
     def __init__(self: Self, embedding_size: int, max_num_nodes: int) -> None:
         self.embedding_size = embedding_size
         self.max_num_nodes = max_num_nodes
 
-        assert len(Z3_OP_TYPES) + 1 < self.embedding_size
+        # We need one space for time
+        self.op_embedding_size = embedding_size // 2
+        self.var_name_embedding_size = embedding_size - self.op_embedding_size - 1
+
+        # Embeddings for z3 operators
+        self.z3_op_to_proj = {}
+
+        for k, v in z3.__dict__.items():
+            if k.startswith("Z3_OP"):
+                self.z3_op_to_proj[v] = self._random_projection(
+                    k, self.op_embedding_size
+                )
+
+    def _stable_hash(self: Self, key: str) -> int:
+        """
+        Stable deterministic hash of a key to an integer
+        """
+        digest = hashlib.blake2b(key.encode("utf-8"), digest_size=16).digest()
+        return int.from_bytes(digest, "big")
+
+    def _random_projection(self: Self, key: str, dim: int) -> T.Tensor:
+        """
+        Produces a deterministic projection of key into a vector of dimension dim with
+        norm ~1
+
+        Returns:
+            T.Tensor: tensor of dimension of (dim, )
+        """
+        seed = self._stable_hash(key) & 0xFFFFFFFF
+
+        proj = []
+
+        for _ in range(dim):
+            seed = (seed + 0x9E3779B9) & 0xFFFFFFFF
+
+            # splitmix32 alg
+            z = seed
+            z = (z ^ (z >> 15)) * 0x85EBCA6B & 0xFFFFFFFF
+            z = (z ^ (z >> 13)) * 0xC2B2AE35 & 0xFFFFFFFF
+            z ^= z >> 16
+
+            proj.append(1.0 if z & 1 else -1.0)
+
+        # Normalize norm to be ~1
+        return T.tensor(proj, dtype=T.float32) / T.sqrt(T.tensor(dim))
 
     @override
     def embed(self: Self, goal: z3.Goal, time: float) -> RawObservation:
@@ -79,15 +117,15 @@ class GraphSMTEmbeddings(SMTEmbeddings):
             Data: The embeddings of each node and the edges.
         """
 
-        num_variable_names = self.embedding_size - len(Z3_OP_TYPES) - 1
-
         nodes: list[tuple[str | None, int]] = []
         edges: set[tuple[int, int]] = set()
         visited: set[int] = set()
 
-        var_freq: dict[str, int] = {}
-
         queue: deque[tuple[z3.ExprRef, int]] = deque()
+
+        # Embeddings for variable names
+        var_to_embedding = {}
+        empty_var_embedding = self._random_projection("", self.var_name_embedding_size)
 
         for ref in goal:
             queue.append((ref, -1))
@@ -107,14 +145,15 @@ class GraphSMTEmbeddings(SMTEmbeddings):
             if ref.decl().kind() == z3.Z3_OP_UNINTERPRETED:
                 expr_str = ref.decl().name()
 
-                var_freq[expr_str] = var_freq.get(expr_str, 0) + 1
-
-            op_id = Z3_OP_TO_ID[ref.decl().kind()]
+                if expr_str not in var_to_embedding:
+                    var_to_embedding[expr_str] = self._random_projection(
+                        expr_str, self.var_name_embedding_size
+                    )
 
             # New expression
             node_idx = len(nodes)
 
-            nodes.append((expr_str, op_id))
+            nodes.append((expr_str, ref.decl().kind()))
 
             if parent != -1:
                 # store edges as (parent -> child) and (child -> parent)
@@ -124,29 +163,16 @@ class GraphSMTEmbeddings(SMTEmbeddings):
             for child_ref in ref.children():
                 queue.append((child_ref, node_idx))
 
-        var_to_id = {}
-
-        # Sort based on frequency since we want to truncate the less used variables if we have to
-        for i, var_name in enumerate(
-            reversed(sorted(var_freq.keys(), key=var_freq.__getitem__))
-        ):
-            if i < num_variable_names:
-                var_to_id[var_name] = i
-            else:
-                var_to_id[var_name] = num_variable_names - 1
-
         node_embeddings = []
 
         for name, op_id in nodes:
-            op_embedding = F.one_hot(T.tensor(op_id), len(Z3_OP_TYPES))
+            op_embedding = self.z3_op_to_proj[op_id]
 
-            var_embedding = T.zeros(num_variable_names)
+            var_embedding = (
+                var_to_embedding[name] if name is not None else empty_var_embedding
+            )
 
             time_embedding = T.zeros(1)
-
-            if name is not None:
-                var_id = var_to_id[name]
-                var_embedding = F.one_hot(T.tensor(var_id), num_variable_names)
 
             # Full embedding is just one-hot encoded operator + one-hot encoded variable name + space for time
             node_embeddings.append(

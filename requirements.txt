@@ -21,3 +21,5 @@ black
 isort
 autoflake
 mypy
+
+setuptools==81.0.0

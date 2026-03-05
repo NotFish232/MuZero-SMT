@@ -35,9 +35,6 @@
       "qfnia": {
         "timeout": "special"
       },
-      "lia2card": {
-        "timeout": "special"
-      },
       "max-bv-sharing": {
         "timeout": "special"
       },
@@ -53,16 +50,16 @@
     },
     "embedding_type": "graph",
     "embedding_config": {
-      "embedding_size": 384,
-      "max_num_nodes": 1024
+      "embedding_size": 128,
+      "max_num_nodes": 512
     },
     "solving_timeout": 60,
     "max_num_tactics": 10
   },
-  "observation_size": 384,
-  "action_space": [8, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-  "num_self_play_workers": 4,
-  "num_eval_workers": 2,
+  "observation_size": 128,
+  "action_space": [8, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+  "num_self_play_workers": 2,
+  "num_eval_workers": 4,
   "num_test_workers": 8,
   "num_simulations": 500,
   "num_continuous_samples": 2,
@@ -101,7 +98,7 @@
   "lr_init": 0.0005,
   "lr_decay_rate": 0.99,
   "lr_decay_steps": 1000,
-  "replay_buffer_size": 2000,
+  "replay_buffer_size": 200,
   "num_unroll_steps": 3,
   "td_steps": 3,
   "priority_alpha": 0.5,
