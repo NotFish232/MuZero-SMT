@@ -62,6 +62,12 @@ class MuZero:
             + 2
         )
 
+        print("-" * 50)
+        print("Running with Resources:")
+        for k, v in ray.available_resources().items():
+            print(f"{k} = {v:,}")
+        print("-" * 50)
+
         # Checkpoint and replay buffer used to initialize workers
         self.checkpoint: dict[str, Any] = {
             "train_weights": None,
