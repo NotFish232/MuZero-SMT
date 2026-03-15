@@ -95,7 +95,7 @@
   "param_loss_weight": 0.25,
   "weight_decay": 0.0001,
   "max_grad_norm": 1,
-  "lr_init": 0.0005,
+  "lr_init": 0.0001,
   "lr_decay_rate": 0.99,
   "lr_decay_steps": 1000,
   "replay_buffer_size": 200,
