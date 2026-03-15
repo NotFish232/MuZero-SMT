@@ -12,6 +12,6 @@ sbatch \
     --nodes=1 \
     --ntasks=1 \
     --cpus-per-task=32 \
-    --mem=128000M \
+    --mem=128G \
     --time=1-00:00:00 \
     --wrap="source venv/bin/activate && python -u \"$file\" $*"
