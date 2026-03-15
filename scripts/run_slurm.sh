@@ -9,7 +9,6 @@ sbatch \
     --job-name="MuZeroSMT_$job_name" \
     --output="%x_%j.out" \
     --error="%x_%j.err" \
-    --exclusive \
     --nodes=1 \
     --ntasks=1 \
     --cpus-per-task=32 \
