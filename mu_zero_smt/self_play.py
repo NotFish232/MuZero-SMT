@@ -9,7 +9,7 @@ import torch as T
 from ray.actor import ActorProxy
 from torch_geometric.data import Data  # type: ignore
 from typing_extensions import Any, Self, Type
-
+import psutil
 from mu_zero_smt.environments.base_environment import BaseEnvironment
 from mu_zero_smt.models.graph_network import MuZeroNetwork
 from mu_zero_smt.replay_buffer import ReplayBuffer
@@ -99,7 +99,7 @@ class SelfPlay:
 
                 if replay_buffer is not None:
                     replay_buffer.save_game.remote(game_history, shared_storage)
-
+                print("MEM used:", psutil.virtual_memory().percent)
                 gc.collect()
             else:
                 # Complete assigned epsiodes in environment
@@ -116,7 +116,7 @@ class SelfPlay:
                     shared_storage.update_info.remote(
                         f"{self.mode}_results", self.env.episode_stats()
                     )
-
+                    print("MEM used:", psutil.virtual_memory().percent)
                     gc.collect()
 
                 # Notify that this worker is done
