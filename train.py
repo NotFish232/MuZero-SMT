@@ -7,13 +7,11 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
-import psutil
 import torch as T
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm  # type: ignore
 from typing_extensions import Any, Self, Type
 
-os.environ["RAY_memory_monitor_refresh_ms"] = "0"
 os.environ["RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO"] = "0"
 os.environ["RAY_DEDUP_LOGS"] = "0"
 
@@ -61,7 +59,7 @@ class MuZero:
             num_cpus=self.config.num_self_play_workers
             + self.config.num_eval_workers
             + 2,
-            object_store_memory=int(0.05 * psutil.virtual_memory().total),
+            object_store_memory=4 * 1024 * 1024,  # 4GB
         )
 
         print("-" * 50)
