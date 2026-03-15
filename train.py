@@ -12,6 +12,7 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm  # type: ignore
 from typing_extensions import Any, Self, Type
 
+os.environ["RAY_memory_monitor_refresh_ms"] = "0"
 os.environ["RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO"] = "0"
 os.environ["RAY_DEDUP_LOGS"] = "0"
 
