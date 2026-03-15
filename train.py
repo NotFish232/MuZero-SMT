@@ -58,7 +58,8 @@ class MuZero:
         ray.init(
             num_cpus=self.config.num_self_play_workers
             + self.config.num_eval_workers
-            + 2
+            + 2,
+            object_store_memory=int(0.5 * ray.cluster_resources()["memory"]),
         )
 
         print("-" * 50)
