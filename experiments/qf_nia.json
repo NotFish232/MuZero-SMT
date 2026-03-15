@@ -102,7 +102,7 @@
   "num_unroll_steps": 3,
   "td_steps": 3,
   "priority_alpha": 0.5,
-  "training_delay": 1,
+  "training_delay": 0.5,
   "ema_decay": 0.995,
   "temperature_start": 1,
   "temperature_end": 0.25
