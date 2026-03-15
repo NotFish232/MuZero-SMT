@@ -59,7 +59,7 @@ class MuZero:
             num_cpus=self.config.num_self_play_workers
             + self.config.num_eval_workers
             + 2,
-            object_store_memory=4 * 1024 * 1024,  # 4GB
+            object_store_memory=4 * 1024 ** 3,  # 4GB
         )
 
         print("-" * 50)
