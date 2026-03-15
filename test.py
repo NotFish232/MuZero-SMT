@@ -35,7 +35,10 @@ def main() -> None:
         | {"terminate": False}
     )
 
-    ray.init(num_cpus=config.num_test_workers)
+    ray.init(
+        num_cpus=config.num_test_workers,
+        object_store_memory=4 * 1024**3,  # 4GB
+    )
 
     shared_storage_worker = (
         ray.remote(SharedStorage)

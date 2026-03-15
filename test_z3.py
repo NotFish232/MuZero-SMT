@@ -68,7 +68,10 @@ def main() -> None:
 
     total = sum(len(lst) for lst in dataset_split.values())
 
-    ray.init(num_cpus=config.num_test_workers)
+    ray.init(
+        num_cpus=config.num_test_workers,
+        object_store_memory=4 * 1024**3,  # 4GB
+    )
 
     shared_storage = (
         ray.remote(SharedStorage)
