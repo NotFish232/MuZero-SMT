@@ -1,3 +1,4 @@
+import hashlib
 from abc import ABC, abstractmethod
 from collections import deque
 
@@ -8,7 +9,6 @@ from torch_geometric.data import Data  # type: ignore
 from typing_extensions import Any, Self, override
 
 from mu_zero_smt.utils import RawObservation
-import hashlib
 
 
 class SMTEmbeddings(ABC):

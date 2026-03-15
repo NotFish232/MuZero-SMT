@@ -1,3 +1,4 @@
+import gc
 import math
 import random
 import time
@@ -98,6 +99,8 @@ class SelfPlay:
 
                 if replay_buffer is not None:
                     replay_buffer.save_game.remote(game_history, shared_storage)
+
+                gc.collect()
             else:
                 # Complete assigned epsiodes in environment
                 ids = self.env.unique_episodes()
@@ -113,6 +116,8 @@ class SelfPlay:
                     shared_storage.update_info.remote(
                         f"{self.mode}_results", self.env.episode_stats()
                     )
+
+                    gc.collect()
 
                 # Notify that this worker is done
                 shared_storage.update_info.remote(
