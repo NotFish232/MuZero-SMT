@@ -16,6 +16,7 @@ matplotlib
 
 pandas-stubs
 scikit-learn-stubs
+types-psutil
 
 black
 isort

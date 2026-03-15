@@ -6,6 +6,9 @@ from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
+
+import psutil
+
 import numpy as np
 import torch as T
 from torch.utils.tensorboard import SummaryWriter
@@ -60,7 +63,7 @@ class MuZero:
             num_cpus=self.config.num_self_play_workers
             + self.config.num_eval_workers
             + 2,
-            object_store_memory=int(0.5 * ray.cluster_resources()["memory"]),
+            object_store_memory=int(0.05 * psutil.virtual_memory().total),
         )
 
         print("-" * 50)
