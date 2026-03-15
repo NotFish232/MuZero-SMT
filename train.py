@@ -6,10 +6,8 @@ from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
-
-import psutil
-
 import numpy as np
+import psutil
 import torch as T
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm  # type: ignore

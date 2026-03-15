@@ -1,4 +1,3 @@
-import gc
 import math
 import random
 import time
@@ -9,6 +8,7 @@ import torch as T
 from ray.actor import ActorProxy
 from torch_geometric.data import Data  # type: ignore
 from typing_extensions import Any, Self, Type
+
 from mu_zero_smt.environments.base_environment import BaseEnvironment
 from mu_zero_smt.models.graph_network import MuZeroNetwork
 from mu_zero_smt.replay_buffer import ReplayBuffer
@@ -98,8 +98,7 @@ class SelfPlay:
 
                 if replay_buffer is not None:
                     replay_buffer.save_game.remote(game_history, shared_storage)
-                    
-                gc.collect()
+
             else:
                 # Complete assigned epsiodes in environment
                 ids = self.env.unique_episodes()
@@ -115,8 +114,6 @@ class SelfPlay:
                     shared_storage.update_info.remote(
                         f"{self.mode}_results", self.env.episode_stats()
                     )
-
-                    gc.collect()
 
                 # Notify that this worker is done
                 shared_storage.update_info.remote(
