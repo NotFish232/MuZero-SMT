@@ -340,8 +340,8 @@ class MuZero:
                 )
                 writer.add_scalar(
                     "2.Stats/2.Train_played_games",
-                    sum(len(e) for e in info["eval_results_history"])
-                    + len(info["eval_results"]),
+                    sum(len(e) for e in info["train_results_history"])
+                    + len(info["train_results"]),
                     counter,
                 )
                 writer.add_scalar(
