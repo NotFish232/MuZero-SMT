@@ -92,8 +92,9 @@ class SelfPlay:
             if not self.single_run:
                 game_history = self.play_game(temperature)
 
+                # We might also eval on train during training so we need it independent
                 shared_storage.update_info.remote(
-                    f"{self.mode}_results", self.env.episode_stats()
+                    f"{self.mode}_self_play_results", self.env.episode_stats()
                 )
 
                 if replay_buffer is not None:

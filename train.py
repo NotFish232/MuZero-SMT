@@ -46,6 +46,18 @@ class MuZero:
         self.Environment = Environment
         self.config = config
 
+        # We want to eval both the actual eval set and train (since self-play is with temperature != 0)
+        self.num_eval_on_eval_workers = round(
+            self.config.num_eval_workers
+            * (
+                self.config.split_ratios["eval"]
+                / (self.config.split_ratios["eval"] + self.config.split_ratios["train"])
+            )
+        )
+        self.num_eval_on_train_workers = (
+            self.config.num_eval_workers - self.num_eval_on_eval_workers
+        )
+
         self.dataset_split = load_dataset_split(self.config)
 
         # Preload the data if its being downloaded so it doesn't happen in each actor
@@ -59,7 +71,7 @@ class MuZero:
             num_cpus=self.config.num_self_play_workers
             + self.config.num_eval_workers
             + 2,
-            object_store_memory=4 * 1024 ** 3,  # 4GB
+            object_store_memory=4 * 1024**3,  # 4GB
         )
 
         # Checkpoint and replay buffer used to initialize workers
@@ -70,8 +82,11 @@ class MuZero:
             "best_weights": None,
             "best_weights_percent": 0,
             # Metrics
-            "finished_eval_workers": [],
+            "train_self_play_results": [],
+            "finished_train_workers": [],
             "train_results": [],
+            "train_results_history": [],
+            "finished_eval_workers": [],
             "eval_results": [],
             "eval_results_history": [],
             "training_step": 0,
@@ -103,8 +118,12 @@ class MuZero:
         self.shared_storage_worker: ActorProxy[SharedStorage] | None = None
         self.replay_buffer_worker: ActorProxy[ReplayBuffer] | None = None
         self.training_worker: ActorProxy[Trainer] | None = None
+
         self.self_play_workers: list[ActorProxy[SelfPlay]] | None = None
-        self.eval_workers: list[ActorProxy[SelfPlay]] | None = None
+
+        # eval workers
+        self.eval_on_eval_workers: list[ActorProxy[SelfPlay]] | None = None
+        self.eval_on_train_workers: list[ActorProxy[SelfPlay]] | None = None
 
     def train(self: Self) -> None:
         """
@@ -159,9 +178,9 @@ class MuZero:
             for i in range(self.config.num_self_play_workers)
         ]
 
-        self.eval_workers = [
+        self.eval_on_eval_workers = [
             ray.remote(SelfPlay)
-            .options(name=f"eval_worker_{i + 1}", num_cpus=1)
+            .options(name=f"eval_on_eval_worker_{i + 1}", num_cpus=1)
             .remote(
                 self.config,
                 self.checkpoint,
@@ -170,9 +189,24 @@ class MuZero:
                 "eval",
                 True,
                 i,
-                self.config.num_eval_workers,
+                self.num_eval_on_eval_workers,
             )
-            for i in range(self.config.num_eval_workers)
+            for i in range(self.num_eval_on_eval_workers)
+        ]
+        self.eval_on_train_workers = [
+            ray.remote(SelfPlay)
+            .options(name=f"eval_on_train_worker_{i + 1}", num_cpus=1)
+            .remote(
+                self.config,
+                self.checkpoint,
+                self.Environment,
+                self.dataset_split["train"],
+                "train",
+                True,
+                i,
+                self.num_eval_on_train_workers,
+            )
+            for i in range(self.num_eval_on_train_workers)
         ]
 
         # Launch workers
@@ -186,7 +220,10 @@ class MuZero:
                 self.replay_buffer_worker,
             )
 
-        for eval_worker in self.eval_workers:
+        for eval_worker in self.eval_on_eval_workers:
+            eval_worker.continuous_self_play.remote(self.shared_storage_worker, None)
+
+        for eval_worker in self.eval_on_train_workers:
             eval_worker.continuous_self_play.remote(self.shared_storage_worker, None)
 
         self.logging_loop()
@@ -212,8 +249,11 @@ class MuZero:
             "eval_weights",
             "best_weights_percent",
             # Metrics
-            "finished_eval_workers",
+            "train_self_play_results",
+            "finished_train_workers",
             "train_results",
+            "train_results_history",
+            "finished_eval_workers",
             "eval_results",
             "eval_results_history",
             # Stats
@@ -238,14 +278,35 @@ class MuZero:
                 writer.add_scalar(
                     "1.Metrics/1.Self_Play_Percent_Solved",
                     (
-                        np.mean([x["successful"] for x in info["train_results"]])
-                        if len(info["train_results"]) > 0
+                        np.mean(
+                            [x["successful"] for x in info["train_self_play_results"]]
+                        )
+                        if len(info["train_self_play_results"]) > 0
                         else 0
                     ),
                     counter,
                 )
 
-                if len(info["finished_eval_workers"]) == self.config.num_eval_workers:
+                if (
+                    len(info["finished_train_workers"])
+                    == self.num_eval_on_train_workers
+                ):
+                    percent_solved = np.mean(
+                        [x["successful"] for x in info["train_results"]]
+                    )
+
+                    writer.add_scalar(
+                        "1.Metrics/2.Train_Percent_Solved", percent_solved, counter
+                    )
+
+                    self.shared_storage_worker.update_info.remote(
+                        "train_results_history", info["train_results"]
+                    )
+                    self.shared_storage_worker.set_info_batch.remote(
+                        {"train_results": [], "finished_train_workers": []}
+                    )
+
+                if len(info["finished_eval_workers"]) == self.num_eval_on_eval_workers:
                     percent_solved = np.mean(
                         [x["successful"] for x in info["eval_results"]]
                     )
@@ -259,7 +320,7 @@ class MuZero:
                         )
 
                     writer.add_scalar(
-                        "1.Metrics/2.Eval_Percent_Solved", percent_solved, counter
+                        "1.Metrics/3.Eval_Percent_Solved", percent_solved, counter
                     )
 
                     self.shared_storage_worker.update_info.remote(
@@ -278,26 +339,32 @@ class MuZero:
                     counter,
                 )
                 writer.add_scalar(
-                    "2.Stats/2.Eval_played_games",
+                    "2.Stats/2.Train_played_games",
                     sum(len(e) for e in info["eval_results_history"])
                     + len(info["eval_results"]),
                     counter,
                 )
                 writer.add_scalar(
-                    "2.Stats/3.Training_steps", info["training_step"], counter
+                    "2.Stats/3.Eval_played_games",
+                    sum(len(e) for e in info["eval_results_history"])
+                    + len(info["eval_results"]),
+                    counter,
                 )
                 writer.add_scalar(
-                    "2.Stats/4.Self_played_steps", info["num_played_steps"], counter
+                    "2.Stats/4.Training_steps", info["training_step"], counter
                 )
                 writer.add_scalar(
-                    "2.Stats/5.Training_steps_per_self_played_step_ratio",
+                    "2.Stats/5.Self_played_steps", info["num_played_steps"], counter
+                )
+                writer.add_scalar(
+                    "2.Stats/6.Training_steps_per_self_played_step_ratio",
                     info["training_step"] / max(1, info["num_played_steps"]),
                     counter,
                 )
-                writer.add_scalar("2.Stats/6.Learning_rate", info["lr"], counter)
-                writer.add_scalar("2.Stats/1.Grad_norm", info["grad_norm"], counter)
+                writer.add_scalar("2.Stats/7.Learning_rate", info["lr"], counter)
+                writer.add_scalar("2.Stats/8.Grad_norm", info["grad_norm"], counter)
                 writer.add_scalar(
-                    "2.Stats/2.Policy_entropy", info["policy_entropy"], counter
+                    "2.Stats/9.Policy_entropy", info["policy_entropy"], counter
                 )
 
                 writer.add_scalar(
