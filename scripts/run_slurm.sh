@@ -5,6 +5,15 @@ shift
 
 job_name="$(basename "$file" .py)"
 
+# Allocate more time for train
+if [ "$job_name" = "train" ]; then
+    time_req="3-00:00:00"
+else
+    time_req="1-00:00:00"
+fi
+
+echo $time_req
+
 sbatch \
     --job-name="MuZeroSMT_$job_name" \
     --output="%x_%j.out" \
@@ -13,5 +22,5 @@ sbatch \
     --ntasks=1 \
     --cpus-per-task=32 \
     --mem=128G \
-    --time=3-00:00:00 \
+    --time="$time_req" \
     --wrap="source venv/bin/activate && python -u \"$file\" $*"
