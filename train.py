@@ -1,8 +1,8 @@
 import copy
+import dataclasses
 import json
 import os
 import time
-from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
@@ -83,6 +83,7 @@ class MuZero:
             "best_weights_percent": 0,
             # Metrics
             "train_self_play_results": [],
+            "train_self_play_visit_counts": [],
             "finished_train_workers": [],
             "train_results": [],
             "train_results_history": [],
@@ -139,8 +140,12 @@ class MuZero:
 
         Path(self.results_path).mkdir(exist_ok=True, parents=True)
 
+        # Also add the config + dataset split used to results
         with open(self.results_path / "config.json", "w+") as f:
-            json.dump(asdict(self.config), f, indent=4)
+            json.dump(dataclasses.asdict(self.config), f, indent=4)
+
+        with open(self.results_path / "split.json", "w+") as f:
+            json.dump(self.dataset_split, f, indent=4)
 
         # Initialize workers
         self.shared_storage_worker = (
@@ -416,15 +421,13 @@ class MuZero:
         # Save model weights
         checkpoint_keys = [
             "train_weights",
-            "optimizer_state",
             "eval_weights",
             "best_weights",
             "best_weights_percent",
-            "train_results",
+            "train_self_play_results",
+            "train_self_play_visit_counts",
+            "train_results_history",
             "eval_results_history",
-            "training_step",
-            "num_played_games",
-            "num_played_steps",
         ]
         checkpoint = ray.get(
             self.shared_storage_worker.get_info_batch.remote(checkpoint_keys)

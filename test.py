@@ -5,6 +5,7 @@ from pathlib import Path
 import ray
 import torch as T
 from natsort import natsorted
+from ray.actor import ActorProxy
 from tqdm import tqdm  # type: ignore
 
 from mu_zero_smt.environments.smt import SMTEnvironment
@@ -47,7 +48,7 @@ def main() -> None:
     )
 
     # Give one worker to train / eval batch each and then the remaining to test
-    test_workers = []
+    test_workers: list[ActorProxy[SelfPlay]] = []
 
     for i in range(config.num_test_workers):
         mode: RunMode = "train" if i == 0 else "eval" if i == 1 else "test"
@@ -58,7 +59,7 @@ def main() -> None:
 
         test_workers.append(
             ray.remote(SelfPlay)
-            .options(name=f"test_worker_{i + 1}", num_cpus=1)
+            .options(name=f"{mode}_test_worker_{i + 1}", num_cpus=1)
             .remote(
                 config,
                 checkpoint,

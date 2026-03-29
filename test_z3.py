@@ -80,7 +80,9 @@ def main() -> None:
     )
 
     for worker_id in range(config.num_test_workers):
-        eval_z3_worker.options(name="eval_z3_worker", num_cpus=1).remote(
+        eval_z3_worker.options(
+            name=f"eval_z3_worker_{worker_id + 1}", num_cpus=1
+        ).remote(
             benchmark,
             dataset_split,
             solving_timeout,
