@@ -12,8 +12,6 @@ else
     time_req="1-00:00:00"
 fi
 
-echo $time_req
-
 sbatch \
     --job-name="MuZeroSMT_$job_name" \
     --output="%x_%j.out" \
