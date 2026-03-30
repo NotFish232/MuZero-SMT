@@ -18,7 +18,7 @@ sbatch \
     --error="%x_%j.err" \
     --nodes=1 \
     --ntasks=1 \
-    --cpus-per-task=32 \
-    --mem=128G \
+    --cpus-per-task=16 \
+    --mem=100G \
     --time="$time_req" \
     --wrap="source venv/bin/activate && python -u \"$file\" $*"
