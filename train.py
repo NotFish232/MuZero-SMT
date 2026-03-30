@@ -6,6 +6,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import git
 import numpy as np
 import torch as T
 from torch.utils.tensorboard import SummaryWriter
@@ -146,6 +147,10 @@ class MuZero:
 
         with open(self.results_path / "split.json", "w+") as f:
             json.dump(self.dataset_split, f, indent=4)
+
+        # Add checksum of git repo so we can figure out what config generated data
+        with open(self.results_path / "git_commit.txt", "w+") as f:
+            f.write(git.Repo(search_parent_directories=True).head.object.hexsha)
 
         # Initialize workers
         self.shared_storage_worker = (
