@@ -1,5 +1,3 @@
 #!/usr/bin/env bash
 
-source venv/bin/activate
-
-tensorboard --logdir results/
+./venv/bin/tensorboard --logdir results/
