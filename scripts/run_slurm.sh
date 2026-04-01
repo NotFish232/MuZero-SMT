@@ -21,4 +21,4 @@ sbatch \
     --cpus-per-task=16 \
     --mem=128G \
     --time="$time_req" \
-    --wrap="source venv/bin/activate && python -u \"$file\" $*"
+    --wrap="./venv/bin/python -u \"$file\" $*"
