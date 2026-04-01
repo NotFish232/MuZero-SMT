@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
 
-./venv/bin/tensorboard --logdir results/
+# Fix weird checksum errors
+./venv/bin/tensorboard --logdir results/ --extra_data_server_flags=--no-checksum
