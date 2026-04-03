@@ -257,7 +257,7 @@ def scalar_to_support(x: T.Tensor, support_size: int, eps: float = 1e-3) -> T.Te
 
 def sample_continuous_params(
     continuous_logits: T.Tensor, num_continuous_samples: int
-) -> T.Tensor:
+) -> tuple[T.Tensor, T.Tensor]:
     """
     Samples continuous params from the policy logits, given mean and standard deviations
 
@@ -266,7 +266,7 @@ def sample_continuous_params(
         num_continuous_samples (int): How many samples to make
 
     Returns:
-        T.Tensor: Sampled values of dimension (num_samples, continuous_action_space)
+        tuple[T.Tensor, T.Tensor]: Sampled values of dimension (num_samples, continuous_action_space) along with log likelihoods of dimension (num_samples, continuous_action_space)
     """
 
     means = continuous_logits[:, 0]
@@ -274,7 +274,13 @@ def sample_continuous_params(
     # Converts from log variance to standard deviation
     stds = T.exp(0.5 * continuous_logits[:, 1])
 
-    return means + stds * T.randn(num_continuous_samples, continuous_logits.shape[0])
+    distribution = T.distributions.Normal(means, stds)
+
+    # Sample and compute likelihoods
+    samples = distribution.sample((num_continuous_samples,))
+    log_likelihoods = distribution.log_prob(samples)
+
+    return samples, log_likelihoods
 
 
 def get_param_mask(actions: T.Tensor, action_space: list[int]) -> T.Tensor:
@@ -292,6 +298,9 @@ def get_param_mask(actions: T.Tensor, action_space: list[int]) -> T.Tensor:
     action_space_tensor = T.tensor(action_space, device=actions.device)
 
     action_offsets = T.cumsum(action_space_tensor, dim=0)
+
+    # For each entry in batch direction we need start and end of actin space
+    # We then compute the indices that are within range
 
     end_idxs = action_offsets[actions]
     start_idxs = action_offsets[actions] - action_space_tensor[actions]

@@ -97,14 +97,6 @@ class SelfPlay:
                     f"{self.mode}_self_play_results", self.env.episode_stats()
                 )
 
-                # Save more metrics for visit counts
-                shared_storage.update_info.remote(
-                    f"{self.mode}_self_play_visit_counts", game_history.raw_node_visits
-                )
-
-                # Only used for metrics don't save to replay buffer
-                del game_history.raw_node_visits
-
                 if replay_buffer is not None:
                     replay_buffer.save_game.remote(game_history, shared_storage)
 
@@ -184,7 +176,7 @@ class SelfPlay:
                 # Mask out only the parameters relevant to the selected action
                 action_mask = get_param_mask(
                     T.tensor([[action]]), self.config.action_space
-                ).squeeze(0)
+                )[0]
 
                 params = 1 / (1 + np.exp(-raw_params[action_mask]))
 
@@ -196,19 +188,6 @@ class SelfPlay:
 
                 game_history.action_history.append(action)
                 game_history.param_history.append(raw_params)
-
-                # Raw values used for metrics
-                # For each step in history:
-                # list of length action space where for each action
-                # we have visit count of each subnode
-                game_history.raw_node_visits.append(
-                    [[] for _ in range(len(self.config.action_space))]
-                )
-
-                for action, lst in root.children.items():
-                    game_history.raw_node_visits[-1][action].extend(
-                        node.visit_count for node, _ in lst
-                    )
 
                 # Next batch
                 game_history.observation_history.append(observation)
@@ -306,7 +285,7 @@ class MCTS:
             hidden_state,
         ) = model.initial_inference(collate_observations([raw_observation]))
 
-        continuous_params = sample_continuous_params(
+        continuous_params, param_log_likelihoods = sample_continuous_params(
             continuous_logits[0],
             self.config.num_continuous_samples,
         )
@@ -317,10 +296,12 @@ class MCTS:
 
         # Expand Root
         root.expand(
-            hidden_state,
+            hidden_state[0],
             reward,
-            policy_logits,
+            policy_logits[0],
             continuous_params,
+            param_log_likelihoods,
+            self.config.action_space,
         )
 
         # Add dirichlet exploration noise to root to make children selection not completely dependent on priors
@@ -351,12 +332,12 @@ class MCTS:
                 continuous_logits,
                 hidden_state,
             ) = model.recurrent_inference(
-                parent.hidden_state,
+                parent.hidden_state.unsqueeze(0),
                 T.tensor([[action]], device=device),
                 continuous_params.unsqueeze(0),
             )
 
-            continuous_params = sample_continuous_params(
+            continuous_params, param_log_likelihoods = sample_continuous_params(
                 continuous_logits[0],
                 self.config.num_continuous_samples,
             )
@@ -367,10 +348,12 @@ class MCTS:
 
             # Expand the first unexpanded node
             node.expand(
-                hidden_state,
+                hidden_state[0],
                 reward,
-                policy_logits,
+                policy_logits[0],
                 continuous_params,
+                param_log_likelihoods,
+                self.config.action_space,
             )
 
             # Propagate up the search path with the value received
@@ -511,6 +494,8 @@ class MCTSNode:
         reward: float,
         policy_logits: T.Tensor,
         continuous_params: T.Tensor,
+        param_log_likelihoods: T.Tensor,
+        action_space: list[int],
     ) -> None:
         """
         We expand a node using the value, reward and policy prediction obtained from the
@@ -520,20 +505,32 @@ class MCTSNode:
             hidden_state (T.Tensor): The tensor encoding of the current state from the representation network
             reward (float): The reward received at this state
             policy_logits (T.Tensor): Logits of the policy for the current state
+            continuous_params (T.Tensor): Samples of continuous params
+            param_log_likelihoods (T.Tensor): Likelihood of each sample
+            action_space (list[int]): The assocaited action space
         """
 
         self.hidden_state = hidden_state
         self.reward = reward
 
         # Convert logits to values through softmax and mask out actions not in action space
-        policy_values = T.softmax(policy_logits[0], dim=0).tolist()
+        policy_values = T.softmax(policy_logits, dim=0).tolist()
 
         # Initialize children with the probability predicted by the policy
-        for action, policy_prob in zip(range(policy_logits.shape[1]), policy_values):
-            self.children[action] = [
-                (MCTSNode(policy_prob / continuous_params.shape[0]), c)
-                for c in continuous_params
-            ]
+        for action, policy_prob in zip(range(len(action_space)), policy_values):
+            action_mask = get_param_mask(T.tensor([[action]]), action_space)[0]
+
+            # Get average likelihood of each sample but only parameters associated with action
+            joint_likelihood = T.softmax(
+                param_log_likelihoods[:, action_mask].sum(1), dim=0
+            )
+
+            self.children[action] = []
+
+            for param, likelihood in zip(continuous_params, joint_likelihood):
+                self.children[action].append(
+                    (MCTSNode(policy_prob * likelihood), param)
+                )
 
     def add_exploration_noise(
         self: Self, dirichlet_alpha: float, exploration_fraction: float
@@ -572,9 +569,6 @@ class GameHistory:
         self.reward_history: list[float] = []
         self.child_visits: list[list[float]] = []
         self.root_values: list[float] = []
-
-        # Raw values of action => number of visits
-        self.raw_node_visits: list[list[list[int]]] = []
 
     def store_search_statistics(self: Self, root: MCTSNode, action_space: int) -> None:
         # Turn visit count from root into a policy
