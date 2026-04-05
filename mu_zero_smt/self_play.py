@@ -97,6 +97,14 @@ class SelfPlay:
                     f"{self.mode}_self_play_results", self.env.episode_stats()
                 )
 
+                # Save more metrics for visit counts
+                shared_storage.update_info.remote(
+                    f"{self.mode}_self_play_visit_counts", game_history.raw_node_visits
+                )
+
+                # Only used for metrics don't save to replay buffer
+                del game_history.raw_node_visits
+
                 if replay_buffer is not None:
                     replay_buffer.save_game.remote(game_history, shared_storage)
 
@@ -188,6 +196,19 @@ class SelfPlay:
 
                 game_history.action_history.append(action)
                 game_history.param_history.append(raw_params)
+
+                # Raw values used for metrics
+                # For each step in history:
+                # list of length action space where for each action
+                # we have visit count of each subnode
+                game_history.raw_node_visits.append(
+                    [[] for _ in range(len(self.config.action_space))]
+                )
+
+                for action, lst in root.children.items():
+                    game_history.raw_node_visits[-1][action].extend(
+                        node.visit_count for node, _ in lst
+                    )
 
                 # Next batch
                 game_history.observation_history.append(observation)
@@ -569,6 +590,9 @@ class GameHistory:
         self.reward_history: list[float] = []
         self.child_visits: list[list[float]] = []
         self.root_values: list[float] = []
+
+        # Raw values of action => number of visits
+        self.raw_node_visits: list[list[list[int]]] = []
 
     def store_search_statistics(self: Self, root: MCTSNode, action_space: int) -> None:
         # Turn visit count from root into a policy
