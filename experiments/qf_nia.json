@@ -50,8 +50,9 @@
     },
     "embedding_type": "graph",
     "embedding_config": {
-      "embedding_size": 128,
-      "max_num_nodes": 512
+      "max_num_nodes": 512,
+      "max_num_ops": 256,
+      "max_num_vars": 256
     },
     "solving_timeout": 60,
     "max_num_tactics": 10
@@ -71,7 +72,8 @@
   "support_size": 3,
   "model_type": "graph",
   "model_config": {
-    "encoded_state_size": 64,
+    "encoded_state_size": 32,
+    "embeddings_list": [[256, 15], [256, 16], [1, 1]],
     "representation_hidden_channels": 64,
     "representation_num_layers": 6,
     "dynamics_layers": [64, 64],

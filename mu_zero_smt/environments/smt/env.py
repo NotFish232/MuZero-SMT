@@ -75,7 +75,7 @@ class SMTEnvironment(BaseEnvironment):
 
     def _get_observation(self: Self) -> RawObservation:
         return self.embedder.embed(
-            self.current_goal, self.time_spent / self.solving_timeout
+            self.current_goal, 1 - self.time_spent / self.solving_timeout
         )
 
     @override

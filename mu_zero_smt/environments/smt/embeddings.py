@@ -1,4 +1,3 @@
-import hashlib
 from abc import ABC, abstractmethod
 from collections import deque
 
@@ -55,55 +54,30 @@ class ProbeSMTEmbeddings(SMTEmbeddings):
 
 
 class GraphSMTEmbeddings(SMTEmbeddings):
-    def __init__(self: Self, embedding_size: int, max_num_nodes: int) -> None:
-        self.embedding_size = embedding_size
+    def __init__(
+        self: Self, max_num_nodes: int, max_num_ops: int, max_num_vars: int
+    ) -> None:
+        # We make simple size 3 embeddings
+        # Its up to the graph neural net to learn embeddings based on our numbers
+        # First 50% of embeddings are reffered to top n most frequent and will have no collisions
+        # Other ones are modded and might
+
         self.max_num_nodes = max_num_nodes
 
-        # We need one space for time
-        self.op_embedding_size = embedding_size // 2
-        self.var_name_embedding_size = embedding_size - self.op_embedding_size - 1
+        self.greedy_percentage = 0.5
 
-        # Embeddings for z3 operators
-        self.z3_op_to_proj = {}
+        self.max_num_ops = max_num_ops
+        self.max_num_vars = max_num_vars
 
-        for k, v in z3.__dict__.items():
-            if k.startswith("Z3_OP"):
-                self.z3_op_to_proj[v] = self._random_projection(
-                    k, self.op_embedding_size
-                )
+        self.num_ops_greedy = int(self.greedy_percentage * self.max_num_ops)
+        self.num_ops_remaining = self.max_num_ops - self.num_ops_greedy
 
-    def _stable_hash(self: Self, key: str) -> int:
-        """
-        Stable deterministic hash of a key to an integer
-        """
-        digest = hashlib.blake2b(key.encode("utf-8"), digest_size=16).digest()
-        return int.from_bytes(digest, "big")
+        self.num_vars_greedy = int(self.greedy_percentage * self.max_num_vars)
+        self.num_vars_remaining = self.max_num_vars - self.num_vars_greedy
 
-    def _random_projection(self: Self, key: str, dim: int) -> T.Tensor:
-        """
-        Produces a deterministic projection of key into a vector of dimension dim with
-        norm ~1
+        z3_ops = [v for k, v in z3.__dict__.items() if k.startswith("Z3_OP")]
 
-        Returns:
-            T.Tensor: tensor of dimension of (dim, )
-        """
-        seed = self._stable_hash(key) & 0xFFFFFFFF
-
-        proj = []
-
-        for _ in range(dim):
-            seed = (seed + 0x9E3779B9) & 0xFFFFFFFF
-
-            # splitmix32 alg
-            z = seed
-            z = (z ^ (z >> 15)) * 0x85EBCA6B & 0xFFFFFFFF
-            z = (z ^ (z >> 13)) * 0xC2B2AE35 & 0xFFFFFFFF
-            z ^= z >> 16
-
-            proj.append(1.0 if z & 1 else -1.0)
-
-        # Normalize norm to be ~1
-        return T.tensor(proj, dtype=T.float32) / T.sqrt(T.tensor(dim))
+        self.z3_op_to_id = dict(zip(sorted(z3_ops), range(len(z3_ops))))
 
     @override
     def embed(self: Self, goal: z3.Goal, time: float) -> RawObservation:
@@ -124,19 +98,18 @@ class GraphSMTEmbeddings(SMTEmbeddings):
         queue: deque[tuple[z3.ExprRef, int]] = deque()
 
         # Embeddings for variable names
-        var_to_embedding = {}
-        empty_var_embedding = self._random_projection("", self.var_name_embedding_size)
+        var_to_freq: dict[str, int] = {}
 
         for ref in goal:
             queue.append((ref, -1))
 
-        # Runs a BFS on the AST of the formula until either all nodes are visited
-        # or until we reached max_num_nodes
-        while len(queue) > 0 and len(visited) < self.max_num_nodes:
+        # Runs a BFS on the AST of the formula
+        while len(queue) > 0:
             ref, parent = queue.popleft()
 
             if ref.get_id() in visited:
                 continue
+
             visited.add(ref.get_id())
 
             expr_str = None
@@ -145,60 +118,61 @@ class GraphSMTEmbeddings(SMTEmbeddings):
             if ref.decl().kind() == z3.Z3_OP_UNINTERPRETED:
                 expr_str = ref.decl().name()
 
-                if expr_str not in var_to_embedding:
-                    var_to_embedding[expr_str] = self._random_projection(
-                        expr_str, self.var_name_embedding_size
-                    )
+                var_to_freq[expr_str] = var_to_freq.get(expr_str, 0) + 1
 
             # New expression
+
+            # if we are greater than max num of nodes prune here
+            # we don't prune earlier because we still want the var visit counts
             node_idx = len(nodes)
 
-            nodes.append((expr_str, ref.decl().kind()))
+            if node_idx < self.max_num_nodes:
+                nodes.append((expr_str, ref.decl().kind()))
 
-            if parent != -1:
-                # store edges as (parent -> child) and (child -> parent)
-                edges.add((parent, node_idx))
-                edges.add((node_idx, parent))
+                if parent != -1:
+                    # store edges as (parent -> child) and (child -> parent)
+                    edges.add((parent, node_idx))
+                    edges.add((node_idx, parent))
 
-            for child_ref in ref.children():
-                queue.append((child_ref, node_idx))
+                for child_ref in ref.children():
+                    queue.append((child_ref, node_idx))
+
+        sorted_vars = sorted(
+            var_to_freq.keys(),
+            key=var_to_freq.__getitem__,
+            reverse=True,
+        )
+        var_to_id = dict(zip(sorted_vars, range(len(var_to_freq))))
 
         node_embeddings = []
 
         for name, op_id in nodes:
-            op_embedding = self.z3_op_to_proj[op_id]
+            op_id = self.z3_op_to_id[op_id]
 
-            var_embedding = (
-                var_to_embedding[name] if name is not None else empty_var_embedding
-            )
+            # If we have too many op embeddings hash the ones higher
+            # First k are gauranteed to be collision free
+            if op_id >= self.num_ops_greedy:
+                op_id = (
+                    self.num_ops_greedy
+                    + (op_id - self.num_ops_greedy) % self.num_ops_remaining
+                )
 
-            time_embedding = T.zeros(1)
+            var_id = var_to_id[name] if name is not None else self.max_num_vars - 1
 
-            # Full embedding is just one-hot encoded operator + one-hot encoded variable name + space for time
-            node_embeddings.append(
-                T.concat((op_embedding, var_embedding, time_embedding))
-            )
+            # Same idea here
+            if var_id >= self.num_vars_greedy:
+                var_id = (
+                    self.num_vars_greedy
+                    + (var_id - self.num_vars_greedy) % self.num_vars_remaining
+                )
+
+            # Full embedding is our op id, var id, and time
+            node_embeddings.append(T.tensor([op_id, var_id, time]))
 
         if len(node_embeddings) > 0:
             node_embeddings_tensor = T.stack(node_embeddings)
         else:
-            node_embeddings_tensor = T.empty(0, self.embedding_size)
-
-        # Add a dedicated time node so temporal budget is available to the GNN
-        time_node = T.zeros(self.embedding_size)
-        time_node[-1] = float(time)
-
-        if node_embeddings_tensor.shape[0] > 0:
-            node_embeddings_tensor = T.cat(
-                (node_embeddings_tensor, time_node.unsqueeze(0)), dim=0
-            )
-
-            # Connect time node to root to enable message passing
-            time_node_idx = node_embeddings_tensor.shape[0] - 1
-            edges.add((0, time_node_idx))
-            edges.add((time_node_idx, 0))
-        else:
-            node_embeddings_tensor = time_node.unsqueeze(0)
+            node_embeddings_tensor = T.empty(0, 3)
 
         # Transpose the edges and make them contiguous
         if len(edges) > 0:

@@ -72,7 +72,6 @@ class GraphNetwork(MuZeroNetwork):
     @staticmethod
     def from_config(config: MuZeroConfig) -> "GraphNetwork":
         return GraphNetwork(
-            observation_size=config.observation_size,
             action_space=config.action_space,
             support_size=config.support_size,
             **config.model_config
@@ -80,8 +79,8 @@ class GraphNetwork(MuZeroNetwork):
 
     def __init__(
         self: Self,
-        observation_size: int,
         action_space: list[int],
+        embeddings_list: list[tuple[int, int]],
         encoded_state_size: int,
         support_size: int,
         representation_hidden_channels: int,
@@ -96,20 +95,34 @@ class GraphNetwork(MuZeroNetwork):
     ) -> None:
         super().__init__()
 
-        self.observation_size = observation_size
         self.action_space = action_space
+
+        # Embeddings list which should be same size as feature dimension of input graph
+        # For each value in embeddings list that isn't equal to 1, we create learnable embeddings for it
+        # with num embeddings x num features = embeddings_list[i]
+        self.embeddings_list = embeddings_list
         self.encoded_state_size = encoded_state_size
 
         # Size of entire support with a support for values in range -[support_size, support_size]
         self.full_support_size = 2 * support_size + 1
 
+        self.embeddings = nn.ModuleList(
+            [
+                nn.Embedding(n_e, n_f) if n_f != 1 else nn.Identity()
+                for n_e, n_f in self.embeddings_list
+            ]
+        )
+
         # Representation model
         self.representation_model = GraphEncoder(
-            self.observation_size,
+            sum(dim for _, dim in self.embeddings_list),
             representation_hidden_channels,
             self.encoded_state_size,
             num_layers=representation_num_layers,
         )
+
+        # Layer normalization for graph-level encoded state
+        self.repr_norm = nn.LayerNorm(self.encoded_state_size)
 
         # Dynamics Model
         self.dynamics_model = mlp(
@@ -207,23 +220,25 @@ class GraphNetwork(MuZeroNetwork):
             T.Tensor: The encoded state representation of the current observation
         """
 
-        # observation: (batch size, *observation shape)
+        embedded_obs = []
+
+        # First we embed the observation before we feed it into graph net
+        for i, embedding in enumerate(self.embeddings):
+            embedded_feature = embedding(T.round(observation.x[:, i]).to(T.int64))
+
+            if embedded_feature.ndim == 1:
+                embedded_feature = embedded_feature.unsqueeze(1)
+
+            embedded_obs.append(embedded_feature)
 
         # encoded_state: (batch size, encoded state size)
         encoded_state = self.representation_model(
-            observation.x, observation.edge_index, observation.batch
+            T.concat(embedded_obs, 1),
+            observation.edge_index,
+            observation.batch,
         )
 
-        # Scale encoded state between [0, 1] (See appendix paper Training)
-
-        # Find min and max values along non-batch dimension
-        min_encoded_state = T.min(encoded_state, dim=1, keepdim=True)[0]
-        max_encoded_state = T.max(encoded_state, dim=1, keepdim=True)[0]
-
-        # For numerical stability add a small epsilon
-        encoded_state_normalized = (encoded_state - min_encoded_state) / (
-            max_encoded_state - min_encoded_state + 1e-8
-        )
+        encoded_state_normalized = self.repr_norm(encoded_state)
 
         return encoded_state_normalized
 
@@ -274,16 +289,7 @@ class GraphNetwork(MuZeroNetwork):
 
         reward = self.reward_model(next_encoded_state)
 
-        # Scale encoded state between [0, 1] (See paper appendix Training)
-
-        # Find min and max values along non-batch dimensions
-        min_next_encoded_state = T.min(next_encoded_state, dim=1, keepdim=True)[0]
-        max_next_encoded_state = T.max(next_encoded_state, dim=1, keepdim=True)[0]
-
-        # for numerical stability add a small epsilon
-        next_encoded_state_normalized = (
-            next_encoded_state - min_next_encoded_state
-        ) / (max_next_encoded_state - min_next_encoded_state + 1e-8)
+        next_encoded_state_normalized = self.repr_norm(next_encoded_state)
 
         return next_encoded_state_normalized, reward
 
