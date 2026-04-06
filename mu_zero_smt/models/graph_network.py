@@ -121,9 +121,6 @@ class GraphNetwork(MuZeroNetwork):
             num_layers=representation_num_layers,
         )
 
-        # Layer normalization for graph-level encoded state
-        self.repr_norm = nn.LayerNorm(self.encoded_state_size)
-
         # Dynamics Model
         self.dynamics_model = mlp(
             self.encoded_state_size,
@@ -238,7 +235,14 @@ class GraphNetwork(MuZeroNetwork):
             observation.batch,
         )
 
-        encoded_state_normalized = self.repr_norm(encoded_state)
+        # Find min and max values along non-batch dimension
+        min_encoded_state = T.min(encoded_state, dim=1, keepdim=True)[0]
+        max_encoded_state = T.max(encoded_state, dim=1, keepdim=True)[0]
+
+        # For numerical stability add a small epsilon
+        encoded_state_normalized = (encoded_state - min_encoded_state) / (
+            max_encoded_state - min_encoded_state + 1e-8
+        )
 
         return encoded_state_normalized
 
@@ -289,7 +293,14 @@ class GraphNetwork(MuZeroNetwork):
 
         reward = self.reward_model(next_encoded_state)
 
-        next_encoded_state_normalized = self.repr_norm(next_encoded_state)
+        # Find min and max values along non-batch dimension
+        min_next_encoded_state = T.min(next_encoded_state, dim=1, keepdim=True)[0]
+        max_next_encoded_state = T.max(next_encoded_state, dim=1, keepdim=True)[0]
+
+        # For numerical stability add a small epsilon
+        next_encoded_state_normalized = (next_encoded_state - min_next_encoded_state) / (
+            max_next_encoded_state - min_next_encoded_state + 1e-8
+        )
 
         return next_encoded_state_normalized, reward
 
