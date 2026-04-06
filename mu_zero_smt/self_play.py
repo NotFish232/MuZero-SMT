@@ -542,7 +542,7 @@ class MCTSNode:
         self.reward = reward
 
         # Convert logits to values through softmax and mask out actions not in action space
-        policy_values = T.softmax(policy_logits, dim=0).tolist()
+        policy_values = T.softmax(policy_logits - policy_logits.max(), dim=0).tolist()
 
         # Initialize children with the probability predicted by the policy
         for action, policy_prob in zip(range(len(action_space)), policy_values):
