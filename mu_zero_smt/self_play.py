@@ -401,8 +401,15 @@ class MCTS:
 
         for action, lst in node.children.items():
             for child, params in lst:
-                node_action_tuples.append((child, action, params))
-                puct_scores.append(self.puct_score(node, child, min_max_stats))
+                puct_score = self.puct_score(node, child, min_max_stats)
+
+                if not math.isnan(puct_score):
+                    node_action_tuples.append((child, action, params))
+                    puct_scores.append(puct_score)
+                else:
+                    print(
+                        f"NaN puct score: {child.prior_prob = }, {child.visit_count = }, {node.visit_count = }, {min_max_stats.minimum = }, {min_max_stats.maximum = }"
+                    )
 
         max_puct_score = max(puct_scores)
 
@@ -412,7 +419,7 @@ class MCTS:
             [
                 tup
                 for tup, puct_score in zip(node_action_tuples, puct_scores)
-                if puct_score == max_puct_score
+                if math.isclose(puct_score, max_puct_score)
             ]
         )
 
